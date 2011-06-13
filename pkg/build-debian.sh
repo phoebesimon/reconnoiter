@@ -13,6 +13,6 @@ if [ "x$HEAD" != "x$OLDHEAD" ]; then
 	echo $HEAD > $HEADFILE
 fi
 
-dpkg-buildpackage -rfakeroot -tc
+dpkg-buildpackage -rfakeroot -tc $@
 
 rm debian
