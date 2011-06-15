@@ -31,6 +31,7 @@ MODULES=ping_icmp.@MODULEEXT@ postgres.@MODULEEXT@ \
 
 SMODULES=stomp_driver.@MODULEEXT@ postgres_ingestor.@MODULEEXT@ \
 	rabbitmq_driver.@MODULEEXT@
+# TODO: Add the optional scribe ingestor
 
 all:	$(MODULES) $(SMODULES) test_abort.@MODULEEXT@
 
