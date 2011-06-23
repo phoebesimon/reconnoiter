@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2009, OmniTI Computer Consulting, Inc.
+ * Copyright (c) 2007-2011, OmniTI Computer Consulting, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -55,6 +55,7 @@
 #include <zlib.h>
 #include <assert.h>
 #include <errno.h>
+#include "postgres_ingestor.xmlh"
 
 #define DECL_STMT(codename,confname) \
 static char *codename = NULL; \
@@ -1663,7 +1664,7 @@ noit_module_generic_t postgres_ingestor = {
     NOIT_GENERIC_ABI_VERSION,
     "postgres_ingestor",
     "postgres drive for data ingestion",
-    "", 
+    postgres_ingestor_xml_description,
     postgres_ingestor_onload,
   },  
   postgres_ingestor_config,
