@@ -435,6 +435,16 @@ jlog_logio_reopen(noit_log_stream_t ls) {
   
   return 0;
 }
+static void
+noit_log_jlog_err(void *ctx, const char *format, ...) {
+  int rv;
+  struct timeval now;
+  va_list arg;
+  va_start(arg, format);
+  gettimeofday(&now, NULL);
+  rv = noit_vlog(noit_error, &now, "jlog.c", 0, format, arg);
+  va_end(arg);
+}
 static int
 jlog_logio_open(noit_log_stream_t ls) {
   char path[PATH_MAX], *sub, **subs, *p;
@@ -446,6 +456,7 @@ jlog_logio_open(noit_log_stream_t ls) {
   if(jlog_lspath_to_fspath(ls, path, sizeof(path), &sub) <= 0) return -1;
   log = jlog_new(path);
   if(!log) return -1;
+  jlog_set_error_func(log, noit_log_jlog_err, ls);
   /* Open the writer. */
   if(jlog_ctx_open_writer(log)) {
     /* If that fails, we'll give one attempt at initiailizing it. */
@@ -453,6 +464,7 @@ jlog_logio_open(noit_log_stream_t ls) {
     /* path: close, new, init, close, new, writer, add subscriber */
     jlog_ctx_close(log);
     log = jlog_new(path);
+    jlog_set_error_func(log, noit_log_jlog_err, ls);
     if(jlog_ctx_init(log)) {
       noitL(noit_error, "Cannot init jlog writer: %s\n",
             jlog_ctx_err_string(log));
@@ -462,6 +474,7 @@ jlog_logio_open(noit_log_stream_t ls) {
     /* After it is initialized, we can try to reopen it as a writer. */
     jlog_ctx_close(log);
     log = jlog_new(path);
+    jlog_set_error_func(log, noit_log_jlog_err, ls);
     if(jlog_ctx_open_writer(log)) {
       noitL(noit_error, "Cannot open jlog writer: %s\n",
             jlog_ctx_err_string(log));
@@ -652,6 +665,14 @@ noit_log_stream_set_property(noit_log_stream_t ls,
   noit_hash_replace(ls->config, prop, strlen(prop), (void *)v, free, free);
 }
 
+static void
+noit_log_init_rwlock(noit_log_stream_t ls) {
+  pthread_rwlockattr_t attr;
+  pthread_rwlockattr_init(&attr);
+  pthread_rwlockattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+  pthread_rwlock_init(ls->lock, &attr);
+}
+
 noit_log_stream_t
 noit_log_stream_new_on_fd(const char *name, int fd, noit_hash_table *config) {
   noit_log_stream_t ls;
@@ -662,7 +683,7 @@ noit_log_stream_new_on_fd(const char *name, int fd, noit_hash_table *config) {
   ls->enabled = 1;
   ls->config = config;
   ls->lock = calloc(1, sizeof(*ls->lock));
-  pthread_rwlock_init(ls->lock, NULL);
+  noit_log_init_rwlock(ls);
   /* This double strdup of ls->name is needed, look for the next one
    * for an explanation.
    */
@@ -725,7 +746,7 @@ noit_log_stream_new(const char *name, const char *type, const char *path,
                        strdup(ls->name), strlen(ls->name), ls) == 0)
       goto freebail;
     ls->lock = calloc(1, sizeof(*ls->lock));
-    pthread_rwlock_init(ls->lock, NULL);
+    noit_log_init_rwlock(ls);
   }
   /* This is for things that don't open on paths */
   if(ctx) ls->op_ctx = ctx;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, OmniTI Computer Consulting, Inc.
+ * Copyright (c) 2011, OmniTI Computer Consulting, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,44 +30,29 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _NOIT_CHECK_TOOLS_H
-#define _NOIT_CHECK_TOOLS_H
+#ifndef _NOIT_CHECK_LOG_HELPERS_H
+#define _NOIT_CHECK_LOG_HELPERS_H
 
-#include "noit_defines.h"
-#include "eventer/eventer.h"
-#include "noit_module.h"
-#include "noit_check.h"
-#include "utils/noit_hash.h"
-#include "noit_check_tools_shared.h"
+typedef enum {
+  NOIT_COMPRESS_NONE = 0,
+  NOIT_COMPRESS_ZLIB = 1
+} noit_compression_type_t;
 
-typedef int (*dispatch_func_t)(noit_module_t *, noit_check_t *,
-                               noit_check_t *);
+int
+noit_check_log_bundle_compress_b64(noit_compression_type_t ctype,
+                                   const char *buf_in,
+                                   unsigned int len_in,
+                                   char ** buf_out,
+                                   unsigned int *len_out);
 
-API_EXPORT(void)
-  noit_check_tools_init();
+int
+noit_check_log_bundle_decompress_b64(noit_compression_type_t ctype,
+                                     const char *buf_in,
+                                     unsigned int len_in,
+                                     char *buf_out,
+                                     unsigned int len_out);
 
-API_EXPORT(int)
-  noit_check_schedule_next(noit_module_t *self,
-                           struct timeval *last_check, noit_check_t *check,
-                           struct timeval *now, dispatch_func_t recur,
-                           noit_check_t *cause);
-
-API_EXPORT(void)
-  noit_check_run_full_asynch_opts(noit_check_t *check, eventer_func_t callback,
-                                  int mask);
-API_EXPORT(void)
-  noit_check_run_full_asynch(noit_check_t *check, eventer_func_t callback);
-
-#define INITIATE_CHECK(func, self, check, cause) do { \
-  if(once) { \
-    func(self, check, cause); \
-  } \
-  else if(!check->fire_event) { \
-    struct timeval epoch = { 0L, 0L }; \
-    noit_check_fake_last_check(check, &epoch, NULL); \
-    noit_check_schedule_next(self, &epoch, check, NULL, func, cause); \
-  } \
-} while(0)
+int
+noit_check_log_b_to_sm(const char *line, int len, char ***out);
 
 #endif
-
