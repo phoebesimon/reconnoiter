@@ -114,8 +114,8 @@ storage_node_quick_lookup(const char *uuid_str, const char *remote_cn,
   const char *actual_remote_cn = NULL;
   if(remote_cn) actual_remote_cn = remote_cn;
   uuid_t id;
-  uuid_parse(uuid_str, id);
-  if(noit_hash_retrieve(&uuid_map, id, UUID_SIZE, &vstr)) {
+  uuid_parse((char *)uuid_str, id);
+  if(noit_hash_retrieve(&uuid_map, (const char *)id, UUID_SIZE, &vstr)) {
     char *str = (char *)vstr;
     if(remote_cn && strcmp(str, remote_cn)) {
       /* replace with new remote */
@@ -174,22 +174,33 @@ bail:
   return rv;
 }
 
-static void
+static int
 stratcon_ingest_launch_file_ingestion(const char *path,
                                       const char *remote_str,
                                       const char *remote_cn,
                                       const char *id_str) {
-  char msg[PATH_MAX + 7]; /*file:\r\n*/
-  noitL(noit_error, " handoff -> %s\n", path);
+  char msg[PATH_MAX + 7], hfile[PATH_MAX]; /*file:\r\n*/
+  if(strcmp(path + strlen(path) - 2, ".h")) {
+    snprintf(hfile, sizeof(hfile), "%s.h", path);
+    if(link(path, hfile) < 0) {
+      noitL(noit_error, "cannot link journal: %s\n", strerror(errno));
+      return -1;
+    }
+  }
+  else
+    strlcpy(hfile, path, sizeof(hfile));
+
+  noitL(noit_error, " handoff -> %s\n", hfile);
   if(the_one_and_only) {
     noit_http_session_ctx *ctx = the_one_and_only;
-    snprintf(msg, sizeof(msg), "file:%s\r\n", path);
+    snprintf(msg, sizeof(msg), "file:%s\r\n", hfile);
     if(noit_http_response_append(ctx,msg,strlen(msg)) == noit_false ||
        noit_http_response_flush(ctx, noit_false) == noit_false) {
       noitL(noit_error, "handoff endpoint disconnected\n");
       the_one_and_only = NULL;
     }
   }
+  return 0;
 }
 
 static int

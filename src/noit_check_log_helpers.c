@@ -130,11 +130,15 @@ noit_check_log_bundle_decompress_b64(noit_compression_type_t ctype,
       // Or don't
       rawlen = (uLong)dlen;
       rawbuff = compbuff;
-      if(rawlen != len_out) return -1;
+      if(rawlen != len_out) {
+        if(compbuff) free(compbuff);
+        return -1;
+      }
       memcpy(buf_out, rawbuff, rawlen);
       break;
   }
 
+  if(compbuff) free(compbuff);
   return 0;
 }
 
@@ -224,8 +228,6 @@ noit_check_log_b_to_sm(const char *line, int len, char ***out) {
     noitL(noit_error, "bundle decode: protobuf invalid\n");
     goto bad_line;
   }
-  noitL(noit_error, "ZOMG -> data (%lld metrics)\n",
-        (long long int)bundle->n_metrics);
   has_status = bundle->status ? 1 : 0;
   cnt = bundle->n_metrics;
   *out = calloc(sizeof(**out), cnt + has_status);
@@ -311,5 +313,5 @@ noit_check_log_b_to_sm(const char *line, int len, char ***out) {
  good_line:
   if(bundle) bundle__free_unpacked(bundle, &protobuf_c_system_allocator);
   if(raw_protobuf) free(raw_protobuf);
-  return cnt;
+  return cnt + has_status;
 }
