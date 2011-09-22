@@ -290,7 +290,7 @@ noit_validate_check_rest_post(xmlDocPtr doc, xmlNodePtr *a, xmlNodePtr *c,
           noit_boolean invalid;
           tmp = xmlNodeGetContent(an);
           invalid = strcmp((char *)tmp, PREFER_IPV4) &&
-                    strcmp((char *)tmp,PREFER_IPV6) &&
+                    strcmp((char *)tmp, PREFER_IPV6) &&
                     strcmp((char *)tmp, FORCE_IPV4) &&
                     strcmp((char *)tmp, FORCE_IPV6);
           xmlFree(tmp);
@@ -298,7 +298,6 @@ noit_validate_check_rest_post(xmlDocPtr doc, xmlNodePtr *a, xmlNodePtr *c,
             *error = "invalid reslove_rtype";
             return 0;
           }
-          resolve_rtype = 1;
         }
         else CHECK_N_SET(period) {
           int pint;

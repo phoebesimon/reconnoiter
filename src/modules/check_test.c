@@ -97,7 +97,7 @@ noit_check_t *
 noit_fire_check(xmlNodePtr attr, xmlNodePtr config, const char **error) {
   char *target = NULL, *name = NULL, *module = NULL, *filterset = NULL;
   char *resolve_rtype = NULL;
-  int timeout = 0;
+  int timeout = 0, flags = NP_TRANSIENT;
   noit_module_t *m;
   noit_check_t *c = NULL;
   xmlNodePtr a, co;
@@ -125,24 +125,22 @@ noit_fire_check(xmlNodePtr attr, xmlNodePtr config, const char **error) {
     goto error;
   }
   conf_hash = calloc(1, sizeof(*conf_hash));
-  for(co = config->children; co; co = co->next) {
-    char *name, *val;
-    xmlChar *tmp_val;
-    name = strdup((char *)co->name);
-    tmp_val = xmlNodeGetContent(co);
-    val = strdup(tmp_val ? (char *)tmp_val : "");
-    noit_hash_replace(conf_hash, name, strlen(name), val, free, free);
-    xmlFree(tmp_val);
+  if(config) {
+    for(co = config->children; co; co = co->next) {
+      char *name, *val;
+      xmlChar *tmp_val;
+      name = strdup((char *)co->name);
+      tmp_val = xmlNodeGetContent(co);
+      val = strdup(tmp_val ? (char *)tmp_val : "");
+      noit_hash_replace(conf_hash, name, strlen(name), val, free, free);
+      xmlFree(tmp_val);
+    }
   }
   if(!m->initiate_check) {
     *error = "that module cannot run checks";
     goto error;
   }
-  int flags = NP_TRANSIENT;
-  flags |= strcmp(resolve_rtype, PREFER_IPV6) == 0 ||
-           strcmp(resolve_rtype, FORCE_IPV6) == 0 ? NP_PREFER_IPV6 : 0;
-  flags |= strcmp(resolve_rtype, FORCE_IPV4) == 0 ||
-           strcmp(resolve_rtype, FORCE_IPV6) == 0 ? NP_SINGLE_RESOLVE : 0;
+  flags |= noit_calc_rtype_flag(resolve_rtype);
   c = calloc(1, sizeof(*c));
   noit_check_update(c, target, name, filterset,
                     conf_hash, 0, timeout, NULL, flags);
