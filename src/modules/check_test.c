@@ -96,7 +96,8 @@ check_test_config(noit_module_generic_t *self, noit_hash_table *o) {
 noit_check_t *
 noit_fire_check(xmlNodePtr attr, xmlNodePtr config, const char **error) {
   char *target = NULL, *name = NULL, *module = NULL, *filterset = NULL;
-  int timeout = 0;
+  char *resolve_rtype = NULL;
+  int timeout = 0, flags = NP_TRANSIENT;
   noit_module_t *m;
   noit_check_t *c = NULL;
   xmlNodePtr a, co;
@@ -115,7 +116,8 @@ noit_fire_check(xmlNodePtr attr, xmlNodePtr config, const char **error) {
       char *timeout_str = (char *)xmlNodeGetContent(a);
       timeout = atoi(timeout_str);
       free(timeout_str);
-    }
+    } else if(!strcmp((char *)a->name, "resolve_rtype")) 
+      resolve_rtype = (char *)xmlNodeGetContent(a);
   }
   m = noit_module_lookup(module);
   if(!m) {
@@ -123,22 +125,25 @@ noit_fire_check(xmlNodePtr attr, xmlNodePtr config, const char **error) {
     goto error;
   }
   conf_hash = calloc(1, sizeof(*conf_hash));
-  for(co = config->children; co; co = co->next) {
-    char *name, *val;
-    xmlChar *tmp_val;
-    name = strdup((char *)co->name);
-    tmp_val = xmlNodeGetContent(co);
-    val = strdup(tmp_val ? (char *)tmp_val : "");
-    noit_hash_replace(conf_hash, name, strlen(name), val, free, free);
-    xmlFree(tmp_val);
+  if(config) {
+    for(co = config->children; co; co = co->next) {
+      char *name, *val;
+      xmlChar *tmp_val;
+      name = strdup((char *)co->name);
+      tmp_val = xmlNodeGetContent(co);
+      val = strdup(tmp_val ? (char *)tmp_val : "");
+      noit_hash_replace(conf_hash, name, strlen(name), val, free, free);
+      xmlFree(tmp_val);
+    }
   }
   if(!m->initiate_check) {
     *error = "that module cannot run checks";
     goto error;
   }
+  flags |= noit_calc_rtype_flag(resolve_rtype);
   c = calloc(1, sizeof(*c));
   noit_check_update(c, target, name, filterset,
-                    conf_hash, 0, timeout, NULL, NP_TRANSIENT);
+                    conf_hash, 0, timeout, NULL, flags);
   c->module = strdup(module);
   uuid_generate(c->checkid);
   c->flags |= NP_DISABLED; /* this is hack to know we haven't run it yet */
@@ -154,6 +159,7 @@ noit_fire_check(xmlNodePtr attr, xmlNodePtr config, const char **error) {
   if(name) xmlFree(name);
   if(module) xmlFree(module);
   if(filterset) xmlFree(filterset);
+  if (resolve_rtype) xmlFree(resolve_rtype);
   return c;
 }
 
