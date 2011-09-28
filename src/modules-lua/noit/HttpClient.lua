@@ -69,7 +69,7 @@ function HttpClient:do_request(method, uri, headers, payload)
     end
     headers["Accept-Encoding"] = "gzip, deflate";
     if headers["User-Agent"] == nil then
-        headers["User-Agent"] = "Reconnoiter/0.9"
+        headers["User-Agent"] = "Rackspace Monitoring/1.0"
     end
     for header, value in pairs(headers) do
       if value ~= nil then sstr = sstr .. header .. ": " .. value .. "\r\n" end
