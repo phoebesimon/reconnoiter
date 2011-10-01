@@ -60,6 +60,9 @@
 #include "json-lib/json.h"
 #include "lua_noit.h"
 
+static noit_log_stream_t nlerr = NULL;
+static noit_log_stream_t nldeb = NULL;
+
 #define DEFLATE_CHUNK_SIZE 32768
 
 #define LUA_DISPATCH(n, f) \
@@ -163,6 +166,7 @@ noit_lua_socket_connect_complete(eventer_t e, int mask, void *vcl,
     lua_pushstring(cl->L, strerror(aerrno));
     args = 2;
   }
+  noitL(nldeb, "lua: resuming noit_lua_socket_connect_complete\n");
   noit_lua_resume(ci, args);
   return 0;
 }
@@ -218,6 +222,7 @@ noit_lua_socket_recv_complete(eventer_t e, int mask, void *vcl,
   *(cl->eptr) = eventer_alloc();
   memcpy(*cl->eptr, e, sizeof(*e));
   noit_lua_check_register_event(ci, *cl->eptr);
+  noitL(nldeb, "lua: resuming noit_lua_socket_recv_complete\n");
   noit_lua_resume(ci, args);
   return 0;
 }
@@ -316,6 +321,7 @@ noit_lua_socket_send_complete(eventer_t e, int mask, void *vcl,
   *(cl->eptr) = eventer_alloc();
   memcpy(*cl->eptr, e, sizeof(*e));
   noit_lua_check_register_event(ci, *cl->eptr);
+  noitL(nldeb, "lua: resuming noit_lua_socket_send_complete\n");
   noit_lua_resume(ci, args);
   return 0;
 }
@@ -519,6 +525,7 @@ noit_lua_ssl_upgrade(eventer_t e, int mask, void *vcl,
 
   /* Upgrade completed successfully */
   lua_pushinteger(cl->L, (rv > 0) ? 0 : -1);
+  noitL(nldeb, "lua: resuming noit_lua_ssl_upgrade\n");
   noit_lua_resume(ci, 1);
   return 0;
 }
@@ -641,6 +648,7 @@ noit_lua_socket_read_complete(eventer_t e, int mask, void *vcl,
   *(cl->eptr) = eventer_alloc();
   memcpy(*cl->eptr, e, sizeof(*e));
   noit_lua_check_register_event(ci, *cl->eptr);
+  noitL(nldeb, "lua: resuming noit_lua_socket_read_complete\n");
   noit_lua_resume(ci, args);
   return 0;
 }
@@ -759,6 +767,7 @@ noit_lua_socket_write_complete(eventer_t e, int mask, void *vcl,
   *(cl->eptr) = eventer_alloc();
   memcpy(*cl->eptr, e, sizeof(*e));
   noit_lua_check_register_event(ci, *cl->eptr);
+  noitL(nldeb, "lua: resuming noit_lua_socket_write_complete\n");
   noit_lua_resume(ci, args);
   return 0;
 }
@@ -922,6 +931,7 @@ nl_sleep_complete(eventer_t e, int mask, void *vcl, struct timeval *now) {
   p_int = diff.tv_sec + diff.tv_usec / 1000000.0;
   lua_pushnumber(cl->L, p_int);
   free(cl);
+  noitL(nldeb, "lua: resuming nl_sleep_complete\n");
   noit_lua_resume(ci, 1);
   return 0;
 }
@@ -1971,4 +1981,6 @@ void noit_lua_init() {
                         noit_lua_socket_connect_complete);
   eventer_name_callback("lua/ssl_upgrade", noit_lua_ssl_upgrade);
   noit_lua_init_dns();
+  nlerr = noit_log_stream_find("error/lua");
+  nldeb = noit_log_stream_find("debug/lua");
 }

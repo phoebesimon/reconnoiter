@@ -793,6 +793,7 @@ noit_lua_initiate(noit_module_t *self, noit_check_t *check,
     noit_lua_setup_check(ci->coro_state, ci->cause);
   else
     lua_pushnil(ci->coro_state);
+  noitL(nldeb, "lua: resuming noit_lua_initiate\n");
   noit_lua_resume(ci, 3);
   return 0;
 
