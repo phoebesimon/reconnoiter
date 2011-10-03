@@ -166,7 +166,7 @@ noit_lua_socket_connect_complete(eventer_t e, int mask, void *vcl,
     lua_pushstring(cl->L, strerror(aerrno));
     args = 2;
   }
-  noitL(nldeb, "lua: resuming noit_lua_socket_connect_complete\n");
+  noitL(nldeb, "lua: resuming noit_lua_socket_connect_complete (fd:%d) (args:%d)\n", e->fd, args);
   noit_lua_resume(ci, args);
   return 0;
 }
@@ -488,16 +488,20 @@ noit_lua_socket_connect(lua_State *L) {
     a.sin4.sin_port = htons(port);
   }
 
+  noitL(nldeb, "lua: noit_lua_socket_connect (fd:%d)\n", e->fd);
   rv = connect(e->fd, (struct sockaddr *)&a,
                family==AF_INET ? sizeof(a.sin4) : sizeof(a.sin6));
   if(rv == 0) {
+    noitL(nldeb, "lua: noit_lua_socket_connect finished (fd:%d)\n", e->fd);
     lua_pushinteger(L, 0);
     return 1;
   }
   if(rv == -1 && errno == EINPROGRESS) {
     /* Need completion */
+    noitL(nldeb, "lua: noit_lua_socket_connect needed completion (fd:%d)\n", e->fd);
     e->callback = noit_lua_socket_connect_complete;
     e->mask = EVENTER_READ | EVENTER_WRITE | EVENTER_EXCEPTION;
+    noit_lua_check_register_event(ci, e);
     eventer_add(e);
     return noit_lua_yield(ci, 0);
   }
