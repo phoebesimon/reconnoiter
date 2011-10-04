@@ -501,7 +501,6 @@ noit_lua_socket_connect(lua_State *L) {
     noitL(nldeb, "lua: noit_lua_socket_connect needed completion (fd:%d)\n", e->fd);
     e->callback = noit_lua_socket_connect_complete;
     e->mask = EVENTER_READ | EVENTER_WRITE | EVENTER_EXCEPTION;
-    noit_lua_check_register_event(ci, e);
     eventer_add(e);
     return noit_lua_yield(ci, 0);
   }
