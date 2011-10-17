@@ -667,7 +667,7 @@ noit_lua_resume(noit_lua_check_info_t *ci, int nargs) {
       /* The person yielding had better setup an event
        * to wake up the coro...
        */
-      lua_gc(ci->lmc->lua_state, LUA_GCCOLLECT, 0);
+      //lua_gc(ci->lmc->lua_state, LUA_GCCOLLECT, 0);
       goto done;
     default: /* Errors */
       noitL(nldeb, "lua resume returned: %d\n", result);
