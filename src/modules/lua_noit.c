@@ -725,6 +725,7 @@ noit_lua_socket_read(lua_State *L) {
     return args;
   }
 
+  eventer_remove(e);
   e->callback = noit_lua_socket_read_complete;
   e->mask = mask | EVENTER_EXCEPTION;
   eventer_add(e);

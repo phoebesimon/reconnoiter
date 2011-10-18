@@ -82,7 +82,6 @@ static int eventer_epoll_impl_propset(const char *key, const char *value) {
 }
 static void eventer_epoll_impl_add(eventer_t e) {
   struct epoll_event _ev;
-  int rv;
   ev_lock_state_t lockstate;
   assert(e->mask);
 
@@ -114,12 +113,7 @@ static void eventer_epoll_impl_add(eventer_t e) {
   lockstate = acquire_master_fd(e->fd);
   master_fds[e->fd].e = e;
 
-  rv = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, e->fd, &_ev);
-  if (rv == -1) {
-    if (errno == EEXIST) {
-      epoll_ctl(epoll_fd, EPOLL_CTL_MOD, e->fd, &_ev);
-    }
-  }
+  epoll_ctl(epoll_fd, EPOLL_CTL_ADD, e->fd, &_ev);
   release_master_fd(e->fd, lockstate);
 }
 static eventer_t eventer_epoll_impl_remove(eventer_t e) {
