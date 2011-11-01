@@ -246,8 +246,7 @@ int
 noit_validate_check_rest_post(xmlDocPtr doc, xmlNodePtr *a, xmlNodePtr *c,
                               const char **error) {
   xmlNodePtr root, tl, an;
-  int name=0, module=0, target=0, period=0, timeout=0;
-  int filterset=0;
+  int name=0, module=0, target=0, period=0, timeout=0, filterset=0;
   *a = *c = NULL;
   root = xmlDocGetRootElement(doc);
   if(!root || strcmp((char *)root->name, "check")) return 0;
