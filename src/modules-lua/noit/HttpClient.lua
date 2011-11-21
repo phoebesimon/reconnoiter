@@ -166,7 +166,7 @@ function te_chunked(self, content_enc_func, read_limit)
         self.content_bytes = self.content_bytes + string.len(decoded)
         if self.hooks.consume ~= nil then self.hooks.consume(decoded) end
         if read_limit and read_limit > 0 then
-          if string.len(self.content_bytes) > read_limit then
+          if self.content_bytes > read_limit then
             self.truncated = true
             return
           end

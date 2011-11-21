@@ -35,6 +35,7 @@
 #include "utils/noit_atomic.h"
 #include "utils/noit_skiplist.h"
 #include "utils/noit_log.h"
+#include "eventer/dtrace_probes.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -113,7 +114,7 @@ static void eventer_epoll_impl_add(eventer_t e) {
   lockstate = acquire_master_fd(e->fd);
   master_fds[e->fd].e = e;
 
-  epoll_ctl(epoll_fd, EPOLL_CTL_ADD, e->fd, &_ev);
+  assert(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, e->fd, &_ev) == 0);
   release_master_fd(e->fd, lockstate);
 }
 static eventer_t eventer_epoll_impl_remove(eventer_t e) {
@@ -130,13 +131,13 @@ static eventer_t eventer_epoll_impl_remove(eventer_t e) {
     if(e == master_fds[e->fd].e) {
       removed = e;
       master_fds[e->fd].e = NULL;
-      epoll_ctl(epoll_fd, EPOLL_CTL_DEL, e->fd, &_ev);
+      assert(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, e->fd, &_ev) == 0);
     }
     release_master_fd(e->fd, lockstate);
   }
   else if(e->mask & EVENTER_TIMER) {
     removed = eventer_remove_timed(e);
-  }
+    }
   else if(e->mask & EVENTER_RECURRENT) {
     removed = eventer_remove_recurrent(e);
   }
@@ -158,7 +159,7 @@ static void eventer_epoll_impl_update(eventer_t e, int mask) {
     if(e->mask & EVENTER_READ) _ev.events |= (EPOLLIN|EPOLLPRI);
     if(e->mask & EVENTER_WRITE) _ev.events |= (EPOLLOUT);
     if(e->mask & EVENTER_EXCEPTION) _ev.events |= (EPOLLERR|EPOLLHUP);
-    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, e->fd, &_ev);
+    assert(epoll_ctl(epoll_fd, EPOLL_CTL_MOD, e->fd, &_ev) == 0);
   }
 }
 static eventer_t eventer_epoll_impl_remove_fd(int fd) {
@@ -171,7 +172,7 @@ static eventer_t eventer_epoll_impl_remove_fd(int fd) {
     lockstate = acquire_master_fd(fd);
     eiq = master_fds[fd].e;
     master_fds[fd].e = NULL;
-    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &_ev);
+    assert(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &_ev) == 0);
     release_master_fd(fd, lockstate);
   }
   return eiq;
@@ -197,7 +198,9 @@ static void eventer_epoll_impl_trigger(eventer_t e, int mask) {
   cbname = eventer_name_for_callback(e->callback);
   noitLT(eventer_deb, &__now, "epoll: fire on %d/%x to %s(%p)\n",
          fd, mask, cbname?cbname:"???", e->callback);
+  EVENTER_CALLBACK_ENTRY((void *)e->callback, (char *)cbname, fd, e->mask, mask);
   newmask = e->callback(e, mask, e->closure, &__now);
+  EVENTER_CALLBACK_RETURN((void *)e->callback, (char *)cbname, newmask);
 
   if(newmask) {
     struct epoll_event _ev;
@@ -206,7 +209,7 @@ static void eventer_epoll_impl_trigger(eventer_t e, int mask) {
     if(newmask & EVENTER_READ) _ev.events |= (EPOLLIN|EPOLLPRI);
     if(newmask & EVENTER_WRITE) _ev.events |= (EPOLLOUT);
     if(newmask & EVENTER_EXCEPTION) _ev.events |= (EPOLLERR|EPOLLHUP);
-    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &_ev);
+    assert(epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &_ev) == 0);
     /* Set our mask */
     e->mask = newmask;
   }

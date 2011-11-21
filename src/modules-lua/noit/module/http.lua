@@ -94,12 +94,11 @@ function onload(image)
     <parameter name="include_body"
                required="optional"
                allowed="^(?:true|false|on|off)$"
-               default="false"
-               allowed="\d+">Include whole response body as a metric with the key 'body'.</parameter>
+               default="false">Include whole response body as a metric with the key 'body'.</parameter>
     <parameter name="read_limit"
                required="optional"
-               default="102400"
-               allowed="\d+">Sets the limit on the data read.</parameter>
+               default="0"
+               allowed="\d+">Sets an approximate limit on the data read (0 means no limit).</parameter>
   </checkconfig>
   <examples>
     <example>
@@ -279,7 +278,7 @@ function initiate(module, check)
     local pcre_match_limit = check.config.pcre_match_limit or 10000
     local redirects = check.config.redirects or 0
     local include_body = false
-    local read_limit = tonumber(check.config.read_limit) or 102400
+    local read_limit = tonumber(check.config.read_limit) or 0
 
     -- expect the worst
     check.bad()

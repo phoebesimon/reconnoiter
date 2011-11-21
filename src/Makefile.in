@@ -172,6 +172,7 @@ noitd_@DTRACEOBJ@:    $(STRATCON_OBJS)
 	@DTRACE@ @DTRACEFLAGS@ -Z -G -s dtrace_probes.d -o noitd_@DTRACEOBJ@ $(NOIT_OBJS)
 
 @DTRACEHDR@:    dtrace_probes.d
+	@-test -z "@DTRACE@" && cp ./@DTRACEHDR@.stock ./@DTRACEHDR@
 	@-test -n "@DTRACE@" && @DTRACE@ -h -s dtrace_probes.d
 
 noitd:	reversion $(NOIT_OBJS) $(NOIT_LIB_FILES) man/noitd.usage.h $(NOITD_DTRACEOBJ)
@@ -181,7 +182,7 @@ noitd:	reversion $(NOIT_OBJS) $(NOIT_LIB_FILES) man/noitd.usage.h $(NOITD_DTRACE
 		$(NOITD_DTRACEOBJ) \
 		$(LDFLAGS) \
 		$(WHOLE_ARCHIVE) \
-		-Leventer -leventer \
+		eventer/*.o \
 		utils/*.o \
 		json-lib/*.o \
 		-Ljlog -ljlog \
@@ -196,7 +197,7 @@ stratcond:	reversion $(STRATCON_OBJS) $(STRATCON_LIB_FILES) $(STRATCOND_DTRACEOB
 		$(STRATCOND_DTRACEOBJ) \
 		$(LDFLAGS) \
 		$(WHOLE_ARCHIVE) \
-		-Leventer -leventer \
+		eventer/*.o \
 		utils/*.o \
 		json-lib/*.o \
 		-Ljlog -ljlog \
