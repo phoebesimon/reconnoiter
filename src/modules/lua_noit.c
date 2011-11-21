@@ -571,6 +571,7 @@ noit_lua_socket_connect_ssl(lua_State *L) {
     /* Need completion */
     e->mask = tmpmask | EVENTER_EXCEPTION;
     e->callback = noit_lua_ssl_upgrade;
+    eventer_add(e);
     return noit_lua_yield(ci, 0);
   }
   lua_pushinteger(L, (rv > 0) ? 0 : -1);
