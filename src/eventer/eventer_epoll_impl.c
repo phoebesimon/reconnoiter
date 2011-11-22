@@ -46,12 +46,8 @@
 #include <assert.h>
 
 #define wrap(fun, fd) do { \
-  noitL(noit_error, "Running %s (fd:%d)\n", #fun, fd); \
   int rc = fun; \
-  if (rc) { \
-    noitL(noit_error, "Failed with rc = %d error = %s\n", rc, strerror(errno)); \
-    assert(rc == 0); \
-  } \
+  assert (rc == 0); \
 } while (0);
 
 struct _eventer_impl eventer_epoll_impl;
