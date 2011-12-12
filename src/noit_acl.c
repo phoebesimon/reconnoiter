@@ -222,7 +222,8 @@ noit_acl_check_ip(noit_check_t *check, const char *ip, aclaccess_t *access) {
     family = AF_INET6;
     rv = inet_pton(family, ip, &a);
     if(rv != 1) {
-      return -1;
+      *access = NOIT_IP_ACL_ALLOW;
+      return 0;
     }
   }
 
