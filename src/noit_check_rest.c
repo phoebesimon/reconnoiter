@@ -44,6 +44,7 @@
 #include "noit_conf.h"
 #include "noit_conf_private.h"
 #include "noit_filters.h"
+#include "rax_defs.h"
 
 #define FAIL(a) do { error = (a); goto error; } while(0)
 
@@ -304,7 +305,7 @@ noit_validate_check_rest_post(xmlDocPtr doc, xmlNodePtr *a, xmlNodePtr *c,
           tmp = xmlNodeGetContent(an);
           pint = noit_conf_string_to_int((char *)tmp);
           xmlFree(tmp);
-          if(pint < 1000 || pint > 1800000) {
+          if(pint < 1000 || pint > MAX_CHECK_PERIOD) {
             *error = "invalid period";
             return 0;
           }
