@@ -46,10 +46,13 @@
 #include "utils/noit_skiplist.h"
 #include "udns/udns.h"
 #include "noit_console.h"
+#include "rax_defs.h"
 
 #define MAX_RR 256
 #define DEFAULT_FAILED_TTL 300
-#define DEFAULT_PURGE_AGE  1200 /* 20 minutes */
+// default purge age is how long we keep hosts in the list of 'needs to be 
+// resolved'. we set that to the maximum check period plus a few minutes.
+#define DEFAULT_PURGE_AGE  (MAX_CHECK_PERIOD/1000+120)
 
 static struct dns_ctx *dns_ctx;
 static noit_skiplist nc_dns_cache;
