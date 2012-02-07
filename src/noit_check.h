@@ -153,6 +153,8 @@ typedef struct noit_check {
 
   noit_skiplist *feeds;
   char target_ip[INET6_ADDRSTRLEN];
+  void **module_metadata;
+  noit_hash_table **module_configs;
 } noit_check_t;
 
 #define NOIT_CHECK_LIVE(a) ((a)->fire_event != NULL)
@@ -177,7 +179,6 @@ API_EXPORT(void) noit_poller_make_causal_map();
 API_EXPORT(void)
   noit_check_fake_last_check(noit_check_t *check,
                              struct timeval *lc, struct timeval *_now);
-API_EXPORT(int) noit_check_max_initial_stutter();
 
 API_EXPORT(int)
   noit_poller_schedule(const char *target,
@@ -185,6 +186,7 @@ API_EXPORT(int)
                        const char *name,
                        const char *filterset,
                        noit_hash_table *config,
+                       noit_hash_table **mconfig,
                        u_int32_t period,
                        u_int32_t timeout,
                        const char *oncheck,
@@ -201,6 +203,7 @@ API_EXPORT(int)
                     const char *name,
                     const char *filterset,
                     noit_hash_table *config,
+                    noit_hash_table **mconfig,
                     u_int32_t period,
                     u_int32_t timeout,
                     const char *oncheck,
@@ -278,6 +281,22 @@ API_EXPORT(void)
 API_EXPORT(void)
   noit_check_transient_remove_feed(noit_check_t *check, const char *feed);
 
+API_EXPORT(int)
+  noit_check_register_module(const char *);
+API_EXPORT(int)
+  noit_check_registered_module_cnt();
+API_EXPORT(const char *)
+  noit_check_registered_module(int);
+
+API_EXPORT(void)
+  noit_check_set_module_metadata(noit_check_t *, int, void *, void (*freefunc)(void *));
+API_EXPORT(void)
+  noit_check_set_module_config(noit_check_t *, int, noit_hash_table *);
+API_EXPORT(void *)
+  noit_check_get_module_metadata(noit_check_t *, int);
+API_EXPORT(noit_hash_table *)
+  noit_check_get_module_config(noit_check_t *, int);
+
 /* These are from noit_check_log.c */
 API_EXPORT(void) noit_check_log_check(noit_check_t *check);
 API_EXPORT(void) noit_check_log_status(noit_check_t *check);
@@ -303,5 +322,8 @@ API_EXPORT(char *)
                                noit_console_state_stack_t *stack,
                                noit_console_state_t *dstate,
                                int argc, char **argv, int idx);
+
+API_EXPORT(void) check_slots_inc_tv(struct timeval *tv);
+API_EXPORT(void) check_slots_dec_tv(struct timeval *tv);
 
 #endif

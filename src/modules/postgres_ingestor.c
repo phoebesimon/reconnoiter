@@ -38,6 +38,7 @@
 #include "utils/noit_str.h"
 #include "utils/noit_mkdir.h"
 #include "utils/noit_getip.h"
+#include "utils/noit_watchdog.h"
 #include "stratcon_datastore.h"
 #include "stratcon_realtime_http.h"
 #include "stratcon_iep.h"
@@ -1447,7 +1448,7 @@ stratcon_ingest_launch_file_ingestion(const char *path,
   ij->storagenode_id = atoi(id_str);
   ij->cpool = get_conn_pool_for_remote(ij->remote_str, ij->remote_cn,
                                        ij->fqdn);
-  noitL(noit_error, "ingesting payload: %s\n", ij->filename);
+  noitL(noit_debug, "ingesting payload: %s\n", ij->filename);
   ingest = eventer_alloc();
   ingest->mask = EVENTER_ASYNCH;
   ingest->callback = stratcon_ingest_asynch_execute;
@@ -1495,6 +1496,7 @@ stratcon_ingest_all_storagenode_info() {
             info->storagenode_id,
             info->fqdn ? info->fqdn : "", info->dsn ? info->dsn : "");
     }
+    noit_watchdog_child_heartbeat();
   }
   PQclear(d->res);
  bad_row:
@@ -1558,6 +1560,7 @@ stratcon_ingest_all_check_info() {
             info->storagenode_id,
             info->fqdn ? info->fqdn : "", info->dsn ? info->dsn : "");
     }
+    noit_watchdog_child_heartbeat();
   }
   PQclear(d->res);
  bad_row:
@@ -1568,53 +1571,32 @@ stratcon_ingest_all_check_info() {
   return loaded;
 }
 
-static int
-rest_get_noit_config(noit_http_rest_closure_t *restc,
-                     int npats, char **pats) {
-  noit_http_session_ctx *ctx = restc->http_ctx;
+static char *
+stratcon_get_noit_config(const char *cn) {
   ds_single_detail *d;
   int row_count = 0;
   const char *xml = NULL;
+  char *xmlcopy = NULL;
   conn_q *cq = NULL;
 
-  if(npats != 0) {
-    noit_http_response_server_error(ctx, "text/xml");
-    noit_http_response_end(ctx);
-    return 0;
-  }
   d = calloc(1, sizeof(*d));
   GET_QUERY(config_get);
   cq = get_conn_q_for_metanode();
-  if(!cq) {
-    noit_http_response_server_error(ctx, "text/xml");
-    goto bad_row;
-  }
+  if(!cq) goto bad_row;
 
-  DECLARE_PARAM_STR(restc->remote_cn,
-                    restc->remote_cn ? strlen(restc->remote_cn) : 0);
+  DECLARE_PARAM_STR(cn, cn ? strlen(cn) : 0);
   PG_EXEC(config_get);
   row_count = PQntuples(d->res);
   if(row_count == 1) PG_GET_STR_COL(xml, 0, "config");
 
-  if(xml == NULL) {
-    char buff[1024];
-    snprintf(buff, sizeof(buff), "<error><remote_cn>%s</remote_cn>"
-                                 "<row_count>%d</row_count></error>\n",
-             restc->remote_cn, row_count);
-    noit_http_response_append(ctx, buff, strlen(buff));
-    noit_http_response_not_found(ctx, "text/xml");
-  }
-  else {
-    noit_http_response_append(ctx, xml, strlen(xml));
-    noit_http_response_ok(ctx, "text/xml");
-  }
+  if(xml) xmlcopy = strdup(xml);
+
  bad_row:
   free_params((ds_single_detail *)d);
   d->nparams = 0;
   if(cq) release_conn_q(cq);
 
-  noit_http_response_end(ctx);
-  return 0;
+  return xmlcopy;
 }
 
 static ingestor_api_t postgres_ingestor_api = {
@@ -1622,7 +1604,7 @@ static ingestor_api_t postgres_ingestor_api = {
   .iep_check_preload = stratcon_ingest_iep_check_preload,
   .storage_node_lookup = storage_node_quick_lookup,
   .submit_realtime_lookup = stratcon_ingestor_submit_lookup,
-  .get_noit_config = NULL,
+  .get_noit_config = stratcon_get_noit_config,
   .save_config = stratcon_ingest_saveconfig
 };
 
@@ -1633,9 +1615,11 @@ static int postgres_ingestor_onload(noit_image_t *self) {
   return 0;
 }
 static int is_postgres_ingestor_file(const char *file) {
+  noit_watchdog_child_heartbeat();
   return (strlen(file) == 19 && !strcmp(file + 16, ".pg"));
 }
 static int postgres_ingestor_init(noit_module_generic_t *self) {
+  stratcon_datastore_core_init();
   pthread_mutex_init(&ds_conns_lock, NULL);
   pthread_mutex_init(&storagenode_to_info_cache_lock, NULL);
   ds_err = noit_log_stream_find("error/datastore");

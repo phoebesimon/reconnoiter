@@ -58,8 +58,8 @@
 static noit_http_session_ctx *the_one_and_only = NULL;
 static noit_log_stream_t ds_err = NULL;
 static noit_log_stream_t ds_deb = NULL;
-static noit_log_stream_t ds_pool_deb = NULL;
 static noit_log_stream_t ingest_err = NULL;
+static pthread_mutex_t http_ctx_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int storage_node_quick_lookup(const char *uuid_str,
                                      const char *remote_cn,
@@ -149,7 +149,7 @@ stratcon_ingest_saveconfig() {
   struct in_addr r, l;
   size_t len;
 
-  r.s_addr = htonl((4 << 24) || (2 << 16) || (2 << 8) || 1);
+  r.s_addr = htonl((4 << 24) | (2 << 16) | (2 << 8) | 1);
   memset(&l, 0, sizeof(l));
   noit_getip_ipv4(r, &l);
   /* Ignore the error.. what are we going to do anyway */
@@ -190,7 +190,8 @@ stratcon_ingest_launch_file_ingestion(const char *path,
   else
     strlcpy(hfile, path, sizeof(hfile));
 
-  noitL(noit_error, " handoff -> %s\n", hfile);
+  noitL(noit_debug, " handoff -> %s\n", hfile);
+  pthread_mutex_lock(&http_ctx_lock);
   if(the_one_and_only) {
     noit_http_session_ctx *ctx = the_one_and_only;
     snprintf(msg, sizeof(msg), "file:%s\r\n", hfile);
@@ -200,6 +201,7 @@ stratcon_ingest_launch_file_ingestion(const char *path,
       the_one_and_only = NULL;
     }
   }
+  pthread_mutex_unlock(&http_ctx_lock);
   return 0;
 }
 
@@ -213,12 +215,14 @@ handoff_request_dispatcher(noit_http_session_ctx *ctx) {
     noit_http_response_end(ctx);
     return 0;
   }
+  pthread_mutex_lock(&http_ctx_lock);
   the_one_and_only = ctx;
   noit_http_response_status_set(ctx, 200, "OK");
   noit_http_response_option_set(ctx, NOIT_HTTP_CHUNKED);
   noit_http_response_header_set(ctx, "Content-Type", "text/plain");
   noit_http_response_append(ctx, hello, strlen(hello));
   noit_http_response_flush(ctx, noit_false);
+  pthread_mutex_unlock(&http_ctx_lock);
   return EVENTER_EXCEPTION;
 }
 
@@ -230,7 +234,9 @@ handoff_http_handler(eventer_t e, int mask, void *closure,
   noit_http_session_ctx *http_ctx = ac->service_ctx;
   rv = noit_http_session_drive(e, mask, http_ctx, now, &done);
   if(done) {
+    pthread_mutex_lock(&http_ctx_lock);
     the_one_and_only = NULL;
+    pthread_mutex_unlock(&http_ctx_lock);
     acceptor_closure_free(ac);
   }
   return rv;

@@ -46,6 +46,7 @@
 #include <libxml/xpath.h>
 #include <libxml/tree.h>
 #include <openssl/md5.h>
+#include <openssl/hmac.h>
 
 #include "noit_conf.h"
 #include "noit_module.h"
@@ -538,7 +539,6 @@ noit_lua_socket_connect_ssl(lua_State *L) {
   eventer_ssl_ctx_t *sslctx;
   noit_lua_check_info_t *ci;
   eventer_t e, *eptr;
-  struct timeval now;
   int tmpmask, rv;
 
   ci = get_ci(L);
@@ -1080,6 +1080,27 @@ nl_base64_encode(lua_State *L) {
   if(!encoded) luaL_error(L, "out-of-memory");
   encoded_len = noit_b64_encode(message, inlen, encoded, encoded_len);
   lua_pushlstring(L, (char *)encoded, encoded_len);
+  return 1;
+}
+static int
+nl_hmac_sha1_encode(lua_State *L) {
+  size_t messagelen, keylen, encoded_len;
+  const unsigned char *message, *key;
+  unsigned char* result;
+  char* encoded;
+
+  if(lua_gettop(L) != 2) luaL_error(L, "bad call to noit.hmac_sha1_encode");
+  encoded_len = 28; /* the length of the base64 encoded HMAC-SHA1 result will always be 28 */
+  encoded = malloc(encoded_len);
+
+  message = (const unsigned char *)lua_tolstring(L, 1, &messagelen);
+  key = (const unsigned char *)lua_tolstring(L, 2, &keylen);
+
+  result = HMAC(EVP_sha1(), key, keylen, message, messagelen, NULL, NULL);
+  encoded_len = noit_b64_encode(result, 20, encoded, encoded_len); /* the raw HMAC-SHA1 result will always be 20 */
+
+  lua_pushlstring(L, (char *)encoded, encoded_len);
+
   return 1;
 }
 static const char _hexchars[16] =
@@ -1917,6 +1938,7 @@ static const luaL_Reg noitlib[] = {
   { "base32_encode", nl_base32_encode },
   { "base64_decode", nl_base64_decode },
   { "base64_encode", nl_base64_encode },
+  { "hmac_sha1_encode", nl_hmac_sha1_encode },
   { "md5_hex", nl_md5_hex },
   { "pcre", nl_pcre },
   { "gunzip", nl_gunzip },

@@ -107,6 +107,7 @@ class Reconnoiter_DB {
       $sql = "$sql where templateid = ?";
       $binds[] = $templateid;
     }
+    $sql = "$sql order by title";
     $sth = $this->db->prepare($sql);
     $sth->execute($binds);
     $a = array();
@@ -208,7 +209,7 @@ class Reconnoiter_DB {
          join metric_name_summary m using (sid),
               (select ? ::text as query) q
         where active = true and (query = '' or fts_data @@ to_tsquery(query))
-     order by target, module, name, remote_address",
+     order by target, module, name, remote_address, metric_name",
       $offset, $limit);
   }
   function get_sources($want, $fixate, $active = true) {
@@ -496,6 +497,14 @@ class Reconnoiter_DB {
                                  from prism.saved_graphs
                                 where genesis=?");
     $sth->execute(array($genesis));
+    $row = $sth->fetch();
+    return $row;
+  }
+  function getGraphByTitle($title) {
+    $sth = $this->db->prepare("select *
+                                 from prism.saved_graphs
+                                where title=?");
+    $sth->execute(array($title));
     $row = $sth->fetch();
     return $row;
   }

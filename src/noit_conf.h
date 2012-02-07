@@ -76,6 +76,9 @@ API_EXPORT(noit_conf_section_t *)
 
 API_EXPORT(noit_hash_table *)
   noit_conf_get_hash(noit_conf_section_t section, const char *path);
+API_EXPORT(noit_hash_table *)
+  noit_conf_get_namespaced_hash(noit_conf_section_t section,
+                                const char *path, const char *ns);
 
 API_EXPORT(int) noit_conf_get_string(noit_conf_section_t section,
                                      const char *path, char **value);
@@ -128,6 +131,18 @@ API_EXPORT(int)
 
 API_EXPORT(void) noit_conf_log_init(const char *toplevel);
 API_EXPORT(int) noit_conf_log_init_rotate(const char *, noit_boolean);
+
+API_EXPORT(void) noit_conf_backingstore_remove(noit_conf_section_t node);
+API_EXPORT(void) noit_conf_backingstore_dirty(noit_conf_section_t node);
+
+#define CONF_REMOVE(n) do { \
+  noit_conf_backingstore_remove(n); \
+} while(0)
+
+#define CONF_DIRTY(n) do { \
+ noit_conf_backingstore_dirty(n); \
+ noit_conf_mark_changed(); \
+} while(0)
 
 #define EXPOSE_CHECKER(name) \
   API_EXPORT(pcre *) noit_conf_get_valid_##name##_checker()

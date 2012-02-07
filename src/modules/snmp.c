@@ -123,8 +123,10 @@ typedef struct _mod_config {
 struct target_session {
   void *sess_handle;
   noit_module_t *self;
+  char *key;
   char *target;
   eventer_t timeoutevent;
+  int version;
   int fd;
   int in_table;
   int refcnt;
@@ -144,12 +146,15 @@ struct check_info {
      char *oidname;
      oid oid[MAX_OID_LEN];
      size_t oidlen;
+     metric_type_t type_override;
+     noit_boolean type_should_override;
   } *oids;
   int noids;
   eventer_t timeoutevent;
   noit_module_t *self;
   noit_check_t *check;
   struct target_session *ts;
+  int version;
 };
 
 /* We hold struct check_info's in there key's by their reqid.
@@ -175,21 +180,25 @@ static void remove_check(struct check_info *c) {
 }
 
 struct target_session *
-_get_target_session(noit_module_t *self, char *target) {
+_get_target_session(noit_module_t *self, char *target, int version) {
+  char key[128];
   void *vts;
   struct target_session *ts;
   snmp_mod_config_t *conf;
   conf = noit_module_get_userdata(self);
+  snprintf(key, sizeof(key), "%s:v%d", target, version);
   if(!noit_hash_retrieve(&conf->target_sessions,
-                         target, strlen(target), &vts)) {
+                         key, strlen(key), &vts)) {
     ts = calloc(1, sizeof(*ts));
     ts->self = self;
+    ts->version = version;
     ts->fd = -1;
     ts->refcnt = 0;
     ts->target = strdup(target);
+    ts->key = strdup(key);
     ts->in_table = 1;
     noit_hash_store(&conf->target_sessions,
-                    ts->target, strlen(ts->target), ts);
+                    ts->key, strlen(ts->key), ts);
     vts = ts;
   }
   return (struct target_session *)vts;
@@ -256,54 +265,64 @@ static void noit_snmp_log_results(noit_module_t *self, noit_check_t *check,
       nresults++;
       continue;
     }
-    
+
 #define SETM(a,b) noit_stats_set_metric(&current, \
                                         info->oids[oid_idx].confname, a, b)
-    switch(vars->type) {
-      case ASN_OCTET_STR:
-        sp = malloc(1 + vars->val_len);
-        memcpy(sp, vars->val.string, vars->val_len);
-        sp[vars->val_len] = '\0';
-        SETM(METRIC_STRING, sp);
-        free(sp);
-        break;
-      case ASN_INTEGER:
-      case ASN_GAUGE:
-        SETM(METRIC_INT32, vars->val.integer);
-        break;
-      case ASN_TIMETICKS:
-      case ASN_COUNTER:
-        SETM(METRIC_UINT32, vars->val.integer);
-        break;
-      case ASN_INTEGER64:
-        printI64(varbuff, vars->val.counter64);
-        i64 = strtoll(varbuff, &endptr, 10);
-        SETM(METRIC_INT64, (varbuff == endptr) ? NULL : &i64);
-        break;
-      case ASN_COUNTER64:
-        printU64(varbuff, vars->val.counter64);
-        u64 = strtoull(varbuff, &endptr, 10);
-        SETM(METRIC_UINT64, (varbuff == endptr) ? NULL : &u64);
-        break;
-      case ASN_FLOAT:
-        if(vars->val.floatVal) float_conv = *(vars->val.floatVal);
-        SETM(METRIC_DOUBLE, vars->val.floatVal ? &float_conv : NULL);
-        break;
-      case ASN_DOUBLE:
-        SETM(METRIC_DOUBLE, vars->val.doubleVal);
-        break;
-      case SNMP_NOSUCHOBJECT:
-      case SNMP_NOSUCHINSTANCE:
-        SETM(METRIC_STRING, NULL);
-        break;
-      default:
-        snprint_variable(varbuff, sizeof(varbuff), vars->name, vars->name_length, vars);
-        /* Advance passed the first space and use that unless there
-         * is no space or we have no more string left.
-         */
-        sp = strchr(varbuff, ' ');
-        if(sp) sp++;
-        SETM(METRIC_STRING, (sp && *sp) ? sp : NULL);
+    if(info->oids[oid_idx].type_should_override) {
+      snprint_value(varbuff, sizeof(varbuff), vars->name, vars->name_length, vars);
+      sp = strchr(varbuff, ' ');
+      if(sp) sp++;
+      noit_stats_set_metric_coerce(&current, info->oids[oid_idx].confname,
+                                   info->oids[oid_idx].type_override,
+                                   sp);
+    }
+    else {
+      switch(vars->type) {
+        case ASN_OCTET_STR:
+          sp = malloc(1 + vars->val_len);
+          memcpy(sp, vars->val.string, vars->val_len);
+          sp[vars->val_len] = '\0';
+          SETM(METRIC_STRING, sp);
+          free(sp);
+          break;
+        case ASN_INTEGER:
+        case ASN_GAUGE:
+          SETM(METRIC_INT32, vars->val.integer);
+          break;
+        case ASN_TIMETICKS:
+        case ASN_COUNTER:
+          SETM(METRIC_UINT32, vars->val.integer);
+          break;
+        case ASN_INTEGER64:
+          printI64(varbuff, vars->val.counter64);
+          i64 = strtoll(varbuff, &endptr, 10);
+          SETM(METRIC_INT64, (varbuff == endptr) ? NULL : &i64);
+          break;
+        case ASN_COUNTER64:
+          printU64(varbuff, vars->val.counter64);
+          u64 = strtoull(varbuff, &endptr, 10);
+          SETM(METRIC_UINT64, (varbuff == endptr) ? NULL : &u64);
+          break;
+        case ASN_FLOAT:
+          if(vars->val.floatVal) float_conv = *(vars->val.floatVal);
+          SETM(METRIC_DOUBLE, vars->val.floatVal ? &float_conv : NULL);
+          break;
+        case ASN_DOUBLE:
+          SETM(METRIC_DOUBLE, vars->val.doubleVal);
+          break;
+        case SNMP_NOSUCHOBJECT:
+        case SNMP_NOSUCHINSTANCE:
+          SETM(METRIC_STRING, NULL);
+          break;
+        default:
+          snprint_variable(varbuff, sizeof(varbuff), vars->name, vars->name_length, vars);
+          /* Advance passed the first space and use that unless there
+           * is no space or we have no more string left.
+           */
+          sp = strchr(varbuff, ' ');
+          if(sp) sp++;
+          SETM(METRIC_STRING, (sp && *sp) ? sp : NULL);
+      }
     }
     nresults++;
   }
@@ -312,7 +331,9 @@ static void noit_snmp_log_results(noit_module_t *self, noit_check_t *check,
 
 static int noit_snmp_session_cleanse(struct target_session *ts) {
   if(ts->refcnt == 0 && ts->sess_handle) {
-    eventer_remove_fd(ts->fd);
+    eventer_t e;
+    e = eventer_remove_fd(ts->fd);
+    if(e) eventer_free(e);
     ts->fd = -1;
     if(ts->timeoutevent) {
       eventer_remove(ts->timeoutevent);
@@ -524,7 +545,7 @@ static int noit_snmp_oid_to_checkid(oid *o, int l, uuid_t checkid, char *out) {
       i < reconnoiter_check_oid_len - reconnoiter_check_prefix_oid_len;
       i++) {
     oid v = o[i + reconnoiter_check_prefix_oid_len];
-    if(v < 0 || v > 0xffff) {
+    if(v > 0xffff) {
       noitL(nlerr, "trap target oid [%ld] out of range\n", (long int)v);
       return -1;
     }
@@ -805,8 +826,9 @@ static void noit_snmp_sess_open(struct target_session *ts,
                                 noit_check_t *check) {
   const char *community;
   struct snmp_session sess;
+  struct check_info *info = check->closure;
   snmp_sess_init(&sess);
-  sess.version = SNMP_VERSION_2c;
+  sess.version = info->version;
   sess.peername = ts->target;
   if(!noit_hash_retr_str(check->config, "community", strlen("community"),
                          &community)) {
@@ -856,7 +878,8 @@ static int noit_snmp_fill_req(struct snmp_pdu *req, noit_check_t *check) {
   i = 0;
   while(noit_hash_next_str(check->config, &iter, &name, &klen, &value)) {
     if(!strncasecmp(name, "oid_", 4)) {
-      char oidbuff[128];
+      const char *type_override;
+      char oidbuff[128], typestr[256];
       name += 4;
       info->oids[i].confname = strdup(name);
       noit_check_interpolate(oidbuff, sizeof(oidbuff), value,
@@ -867,6 +890,36 @@ static int noit_snmp_fill_req(struct snmp_pdu *req, noit_check_t *check) {
         read_objid(oidbuff, info->oids[i].oid, &info->oids[i].oidlen);
       else
         get_node(oidbuff, info->oids[i].oid, &info->oids[i].oidlen);
+      snprintf(typestr, sizeof(typestr), "type_%s", name);
+      if(noit_hash_retr_str(check->config, typestr, strlen(typestr),
+                            &type_override)) {
+        int type_enum_fake = *type_override;
+
+        if(!strcasecmp(type_override, "guess"))
+          type_enum_fake = METRIC_GUESS;
+        else if(!strcasecmp(type_override, "int32"))
+          type_enum_fake = METRIC_INT32;
+        else if(!strcasecmp(type_override, "uint32"))
+          type_enum_fake = METRIC_UINT32;
+        else if(!strcasecmp(type_override, "int64"))
+          type_enum_fake = METRIC_INT64;
+        else if(!strcasecmp(type_override, "uint64"))
+          type_enum_fake = METRIC_UINT64;
+        else if(!strcasecmp(type_override, "double"))
+          type_enum_fake = METRIC_DOUBLE;
+        else if(!strcasecmp(type_override, "string"))
+          type_enum_fake = METRIC_STRING;
+
+        switch(type_enum_fake) {
+          case METRIC_GUESS:
+          case METRIC_INT32: case METRIC_UINT32:
+          case METRIC_INT64: case METRIC_UINT64:
+          case METRIC_DOUBLE: case METRIC_STRING:
+            info->oids[i].type_override = *type_override;
+            info->oids[i].type_should_override = noit_true;
+          default: break;
+        }
+      }
       snmp_add_null_var(req, info->oids[i].oid, info->oids[i].oidlen);
       i++;
     }
@@ -881,9 +934,10 @@ static int noit_snmp_send(noit_module_t *self, noit_check_t *check,
   struct target_session *ts;
   struct check_info *info = check->closure;
   int port = 161;
-  const char *portstr;
+  const char *portstr, *versstr;
   char target_port[64];
 
+  info->version = SNMP_VERSION_2c;
   info->self = self;
   info->check = check;
   info->timedout = 0;
@@ -894,8 +948,14 @@ static int noit_snmp_send(noit_module_t *self, noit_check_t *check,
                         &portstr)) {
     port = atoi(portstr);
   }
+  if(noit_hash_retr_str(check->config, "version", strlen("version"),
+                        &versstr)) {
+    /* We don't care about 2c or others... as they all default to 2c */
+    if(!strcmp(versstr, "1")) info->version = SNMP_VERSION_1;
+    if(!strcmp(versstr, "3")) info->version = SNMP_VERSION_3;
+  }
   snprintf(target_port, sizeof(target_port), "%s:%d", check->target_ip, port);
-  ts = _get_target_session(self, target_port);
+  ts = _get_target_session(self, target_port, info->version);
   gettimeofday(&check->last_fire_time, NULL);
   if(!ts->refcnt) {
     eventer_t newe;
@@ -924,6 +984,7 @@ static int noit_snmp_send(noit_module_t *self, noit_check_t *check,
 
   req = snmp_pdu_create(SNMP_MSG_GET);
   if(req) noit_snmp_fill_req(req, check);
+  req->version = info->version;
   /* Setup out snmp requests */
   if(ts->sess_handle && req &&
      (info->reqid = snmp_sess_send(ts->sess_handle, req)) != 0) {
@@ -1012,14 +1073,20 @@ nc_printf_snmpts_brief(noit_console_closure_t ncct,
                        struct target_session *ts) {
   char fd[32];
   struct timeval now, diff;
+  const char *snmpvers = "v(unknown)";
   gettimeofday(&now, NULL);
   sub_timeval(now, ts->last_open, &diff);
   if(ts->fd < 0)
     snprintf(fd, sizeof(fd), "%s", "(closed)");
   else
     snprintf(fd, sizeof(fd), "%d", ts->fd);
-  nc_printf(ncct, "[%s]\n\topened: %0.3fs ago\n\tFD: %s\n\trefcnt: %d\n",
-            ts->target, diff.tv_sec + (float)diff.tv_usec/1000000,
+  switch(ts->version) {
+    case SNMP_VERSION_1: snmpvers = "v1"; break;
+    case SNMP_VERSION_2c: snmpvers = "v2c"; break;
+    case SNMP_VERSION_3: snmpvers = "v3"; break;
+  }
+  nc_printf(ncct, "[%s %s]\n\topened: %0.3fs ago\n\tFD: %s\n\trefcnt: %d\n",
+            ts->target, snmpvers, diff.tv_sec + (float)diff.tv_usec/1000000,
             fd, ts->refcnt);
 }
 
@@ -1091,7 +1158,7 @@ static int noit_snmp_init(noit_module_t *self) {
       noitL(nlerr, "cannot open netsnmp transport for trap daemon\n");
       return -1;
     }
-    ts = _get_target_session(self, "snmptrapd");
+    ts = _get_target_session(self, "snmptrapd", SNMP_DEFAULT_VERSION);
     snmp_sess_init(session);
     session->peername = SNMP_DEFAULT_PEERNAME;
     session->version = SNMP_DEFAULT_VERSION;

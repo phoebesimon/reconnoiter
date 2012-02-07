@@ -82,7 +82,7 @@ noit_console_opt_delegate(noit_console_closure_t ncct,
   i = 0;
   while(next) {
     cmd = next->data;
-    if(strncasecmp(cmd->name, argv[0], strlen(argv[0])) == 0) {
+    if(cmd && strncasecmp(cmd->name, argv[0], strlen(argv[0])) == 0) {
       if(idx == i) return strdup(cmd->name);
       i++;
     }
@@ -265,8 +265,7 @@ noit_edit_complete(EditLine *el, int invoking_key) {
        * object is a directory.
        */
       size_t alen = strlen(matches[0]);
-      if ((alen > 0 && (matches[0])[alen - 1] != '/')
-          && rl_completion_append_character) {
+      if ((alen > 0 && (matches[0])[alen - 1] != '/')) {
         char buf[2];
         buf[0] = rl_completion_append_character;
         buf[1] = '\0';

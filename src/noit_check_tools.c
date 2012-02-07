@@ -39,6 +39,18 @@
 
 #include <assert.h>
 
+NOIT_HOOK_IMPL(check_preflight,
+  (noit_module_t *self, noit_check_t *check, noit_check_t *cause),
+  void *, closure,
+  (void *closure, noit_module_t *self, noit_check_t *check, noit_check_t *cause),
+  (closure,self,check,cause))
+NOIT_HOOK_IMPL(check_postflight,
+  (noit_module_t *self, noit_check_t *check, noit_check_t *cause),
+  void *, closure,
+  (void *closure, noit_module_t *self, noit_check_t *check, noit_check_t *cause),
+  (closure,self,check,cause))
+
+
 typedef struct {
   noit_module_t *self;
   noit_check_t *check;
@@ -55,13 +67,17 @@ noit_check_recur_handler(eventer_t e, int mask, void *closure,
   noit_check_schedule_next(rcl->self, &e->whence, rcl->check, now,
                            rcl->dispatch, NULL);
   if(NOIT_CHECK_RESOLVED(rcl->check)) {
-    if(NOIT_CHECK_DISPATCH_ENABLED()) {
-      char id[UUID_STR_LEN+1];
-      uuid_unparse_lower(rcl->check->checkid, id);
-      NOIT_CHECK_DISPATCH(id, rcl->check->module, rcl->check->name,
-                          rcl->check->target);
+    if(NOIT_HOOK_CONTINUE ==
+       check_preflight_hook_invoke(rcl->self, rcl->check, rcl->cause)) {
+      if(NOIT_CHECK_DISPATCH_ENABLED()) {
+        char id[UUID_STR_LEN+1];
+        uuid_unparse_lower(rcl->check->checkid, id);
+        NOIT_CHECK_DISPATCH(id, rcl->check->module, rcl->check->name,
+                            rcl->check->target);
+      }
+      rcl->dispatch(rcl->self, rcl->check, rcl->cause);
     }
-    rcl->dispatch(rcl->self, rcl->check, rcl->cause);
+    check_postflight_hook_invoke(rcl->self, rcl->check, rcl->cause);
   }
   else
     noitL(noit_debug, "skipping %s`%s`%s, unresolved\n",
@@ -82,7 +98,10 @@ noit_check_schedule_next(noit_module_t *self,
   assert(cause == NULL);
   assert(check->fire_event == NULL);
   if(check->period == 0) return 0;
-  if(NOIT_CHECK_DISABLED(check) || NOIT_CHECK_KILLED(check)) return 0;
+  if(NOIT_CHECK_DISABLED(check) || NOIT_CHECK_KILLED(check)) {
+    if(!(check->flags & NP_TRANSIENT)) check_slots_dec_tv(last_check);
+    return 0;
+  }
 
   /* If we have an event, we know when we intended it to fire.  This means
    * we should schedule that point + period.
@@ -162,6 +181,13 @@ populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
   if(prefix) snprintf(keybuff, sizeof(keybuff), "%s`" fmt, prefix, arg); \
   else snprintf(keybuff, sizeof(keybuff), fmt, arg); \
 } while(0)
+  if(o == NULL) {
+    if(prefix) {
+      noit_stats_set_metric(s, prefix, METRIC_STRING, NULL);
+      count++;
+    }
+    return count;
+  }
   switch(json_object_get_type(o)) {
     /* sub callers */
     case json_type_array:
