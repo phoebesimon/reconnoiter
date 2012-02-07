@@ -61,7 +61,6 @@
 #include "noit_conf.h"
 #include "noit_conf_checks.h"
 #include "noit_filters.h"
-#include "noit_acl.h"
 
 #define APPNAME "noit"
 #define CHILD_WATCHDOG_TIMEOUT 5 /*seconds*/
@@ -209,7 +208,6 @@ static int child_main() {
 
   /* Prepare for launch... */
   noit_filters_init();
-  noit_acl_init();
   noit_poller_init();
   noit_listener_init(APPNAME);
 

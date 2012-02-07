@@ -46,7 +46,6 @@
 #include "utils/noit_log.h"
 #include "utils/noit_hash.h"
 #include "utils/noit_skiplist.h"
-#include "noit_acl.h"
 #include "noit_conf.h"
 #include "noit_check.h"
 #include "noit_module.h"
@@ -645,26 +644,6 @@ noit_check_is_valid_target(const char *target) {
   }
   return noit_true;
 }
-static void
-noit_acl_set_stat(noit_check_t *check) {
-  noit_module_t *mod;
-  stats_t current;
-  char buff[256];
-
-  mod = noit_module_lookup(check->module);
-
-  noit_check_stats_clear(&current);
-  gettimeofday(&current.whence, NULL);
-  current.duration = 0;
-  current.available = NP_UNKNOWN;
-  current.state = NP_UNKNOWN;
-  snprintf(buff, sizeof(buff), "Check disabled by Access Control List");
-  noitL(noit_error, "Check %s`%s disabled due to ACL\n", 
-        check->target, check->name);
-  current.status = buff;
-
-  noit_check_set_stats(mod, check, &current);
-}
 int
 noit_check_set_ip(noit_check_t *new_check,
                   const char *ip_str) {
@@ -730,7 +709,6 @@ noit_check_update(noit_check_t *new_check,
                   const char *oncheck,
                   int flags) {
   int mask = NP_DISABLED | NP_UNCONFIG;
-  aclaccess_t acl;
 
   new_check->generation = __config_load_generation;
   if(new_check->target) free(new_check->target);
@@ -803,14 +781,6 @@ noit_check_update(noit_check_t *new_check,
       new_check->flags |= NP_DISABLED;
     }
   }
-
-  // Check the ACLs on this target
-  noit_acl_check_ip(new_check, target, &acl);
-  if (acl == NOIT_IP_ACL_DENY) {
-    noit_acl_set_stat(new_check);
-    new_check->flags |= NP_DISABLED;
-  }
-
   noit_check_log_check(new_check);
   return 0;
 }
