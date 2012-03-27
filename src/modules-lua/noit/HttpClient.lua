@@ -70,7 +70,7 @@ function HttpClient:do_request(method, uri, headers, payload)
     end
     headers["Accept-Encoding"] = "gzip, deflate";
     if headers["User-Agent"] == nil then
-        headers["User-Agent"] = "Rackspace Monitoring/1.0"
+        headers["User-Agent"] = "Rackspace Monitoring/1.1 (https://monitoring.api.rackspacecloud.com)"
     end
     for header, value in pairs(headers) do
       if value ~= nil then sstr = sstr .. header .. ": " .. value .. "\r\n" end
