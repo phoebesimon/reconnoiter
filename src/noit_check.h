@@ -41,6 +41,7 @@
 #include "eventer/eventer.h"
 #include "utils/noit_hash.h"
 #include "utils/noit_skiplist.h"
+#include "utils/noit_hooks.h"
 #include "noit_conf.h"
 #include "noit_console.h"
 
@@ -155,6 +156,7 @@ typedef struct noit_check {
   char target_ip[INET6_ADDRSTRLEN];
   void **module_metadata;
   noit_hash_table **module_configs;
+  struct timeval initial_schedule_time;
 } noit_check_t;
 
 #define NOIT_CHECK_LIVE(a) ((a)->fire_event != NULL)
@@ -233,23 +235,25 @@ API_EXPORT(int)
                    const char *base, const char *arg);
 
 API_EXPORT(void)
-  noit_check_stats_clear(stats_t *s);
+  noit_check_stats_clear(noit_check_t *check, stats_t *s);
 
 struct _noit_module;
 /* This if for modules (passive) than cannot be watched... */
 API_EXPORT(void)
-  noit_check_passive_set_stats(struct _noit_module *self, noit_check_t *check,
+  noit_check_passive_set_stats(noit_check_t *check,
                                stats_t *newstate);
 /* This is for normal (active) modules... */
 API_EXPORT(void)
-  noit_check_set_stats(struct _noit_module *self, noit_check_t *check,
+  noit_check_set_stats(noit_check_t *check,
                         stats_t *newstate);
 
 API_EXPORT(void)
-  noit_stats_set_metric(stats_t *, const char *, metric_type_t, const void *);
+  noit_stats_set_metric(noit_check_t *check,
+                        stats_t *, const char *, metric_type_t, const void *);
 
 API_EXPORT(void)
-  noit_stats_set_metric_coerce(stats_t *, const char *, metric_type_t,
+  noit_stats_set_metric_coerce(noit_check_t *check,
+                               stats_t *, const char *, metric_type_t,
                                const char *);
 
 API_EXPORT(void)
@@ -325,5 +329,20 @@ API_EXPORT(char *)
 
 API_EXPORT(void) check_slots_inc_tv(struct timeval *tv);
 API_EXPORT(void) check_slots_dec_tv(struct timeval *tv);
+
+NOIT_HOOK_PROTO(check_stats_set_metric,
+                (noit_check_t *check, stats_t *stats, metric_t *m),
+                void *, closure,
+                (void *closure, noit_check_t *check, stats_t *stats, metric_t *m))
+
+NOIT_HOOK_PROTO(check_passive_log_stats,
+                (noit_check_t *check),
+                void *, closure,
+                (void *closure, noit_check_t *check))
+
+NOIT_HOOK_PROTO(check_log_stats,
+                (noit_check_t *check),
+                void *, closure,
+                (void *closure, noit_check_t *check))
 
 #endif

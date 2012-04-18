@@ -54,8 +54,27 @@
 #include "noit_check_resolver.h"
 #include "eventer/eventer.h"
 
+NOIT_HOOK_IMPL(check_stats_set_metric,
+  (noit_check_t *check, stats_t *stats, metric_t *m),
+  void *, closure,
+  (void *closure, noit_check_t *check, stats_t *stats, metric_t *m),
+  (closure,check,stats,m))
+
+NOIT_HOOK_IMPL(check_passive_log_stats,
+  (noit_check_t *check),
+  void *, closure,
+  (void *closure, noit_check_t *check),
+  (closure,check))
+
+NOIT_HOOK_IMPL(check_log_stats,
+  (noit_check_t *check),
+  void *, closure,
+  (void *closure, noit_check_t *check),
+  (closure,check))
+
 /* 20 ms slots over 60 second for distribution */
 #define SCHEDULE_GRANULARITY 20
+#define SLOTS_PER_SECOND (1000/SCHEDULE_GRANULARITY)
 #define MAX_MODULE_REGISTRATIONS 64
 
 /* used to manage per-check generic module metadata */
@@ -75,6 +94,26 @@ static u_int32_t __config_load_generation = 0;
 static unsigned short check_slots_count[60000 / SCHEDULE_GRANULARITY] = { 0 },
                       check_slots_seconds_count[60] = { 0 };
 
+static int
+noit_console_show_timing_slots(noit_console_closure_t ncct,
+                               int argc, char **argv,
+                               noit_console_state_t *dstate,
+                               void *closure) {
+  int i, j;
+  const int upl = (60000 / SCHEDULE_GRANULARITY) / 60;
+  for(i=0;i<60;i++) {
+    nc_printf(ncct, "[%02d] %04d: ", i, check_slots_seconds_count[i]);
+    for(j=i*upl;j<(i+1)*upl;j++) {
+      char cp = '!';
+      if(check_slots_count[j] < 10) cp = '0' + check_slots_count[j];
+      else if(check_slots_count[j] < 36) cp = 'a' + (check_slots_count[j] - 10);
+      nc_printf(ncct, "%c", cp);
+    }
+    nc_printf(ncct, "\n");
+  }
+  return 0;
+}
+
 u_int64_t noit_check_completion_count() {
   return check_completion_count;
 }
@@ -84,7 +123,7 @@ static int check_recycle_bin_processor(eventer_t, int, void *,
 
 static int
 check_slots_find_smallest(int sec) {
-  int i, j, jbase = 0, mini = 0, minj = 0;
+  int i, j, cyclic, random_offset, jbase = 0, mini = 0, minj = 0;
   unsigned short min_running_i = 0xffff, min_running_j = 0xffff;
   for(i=0;i<60;i++) {
     int adj_i = (i + sec) % 60;
@@ -94,7 +133,9 @@ check_slots_find_smallest(int sec) {
     }
   }
   jbase = mini * (1000/SCHEDULE_GRANULARITY);
-  for(j=jbase;j<jbase+(1000/SCHEDULE_GRANULARITY);j++) {
+  random_offset = drand48() * SLOTS_PER_SECOND;
+  for(cyclic=0;cyclic<SLOTS_PER_SECOND;cyclic++) {
+    j = jbase + ((random_offset + cyclic) % SLOTS_PER_SECOND);
     if(check_slots_count[j] < min_running_j) {
       min_running_j = check_slots_count[j];
       minj = j;
@@ -502,6 +543,7 @@ noit_poller_transient_check_count() {
 
 noit_check_t *
 noit_check_clone(uuid_t in) {
+  int i;
   noit_check_t *checker, *new_check;
   void *vcheck;
   if(noit_hash_retrieve(&polls,
@@ -526,6 +568,15 @@ noit_check_clone(uuid_t in) {
   new_check->closure = NULL;
   new_check->config = calloc(1, sizeof(*new_check->config));
   noit_hash_merge_as_dict(new_check->config, checker->config);
+  for(i=0; i<reg_module_id; i++) {
+    noit_hash_table *src_mconfig;
+    src_mconfig = noit_check_get_module_config(checker, i);
+    if(src_mconfig) {
+      noit_hash_table *t = calloc(1, sizeof(*new_check->config));
+      noit_hash_merge_as_dict(t, src_mconfig);
+      noit_check_set_module_config(new_check, i, t);
+    }
+  }
   return new_check;
 }
 
@@ -1011,7 +1062,7 @@ bad_check_initiate(noit_module_t *self, noit_check_t *check,
   if(!check) return -1;
   assert(!(check->flags & NP_RUNNING));
   check->flags |= NP_RUNNING;
-  noit_check_stats_clear(&current);
+  noit_check_stats_clear(check, &current);
   gettimeofday(&current.whence, NULL);
   current.duration = 0;
   current.available = NP_UNKNOWN;
@@ -1019,12 +1070,12 @@ bad_check_initiate(noit_module_t *self, noit_check_t *check,
   snprintf(buff, sizeof(buff), "check[%s] implementation offline",
            check->module);
   current.status = buff;
-  noit_check_set_stats(self, check, &current);
+  noit_check_set_stats(check, &current);
   check->flags &= ~NP_RUNNING;
   return 0;
 }
 void
-noit_check_stats_clear(stats_t *s) {
+noit_check_stats_clear(noit_check_t *check, stats_t *s) {
   memset(s, 0, sizeof(*s));
   s->state = NP_UNKNOWN;
   s->available = NP_UNKNOWN;
@@ -1199,34 +1250,37 @@ noit_stats_populate_metric(metric_t *m, const char *name, metric_type_t type,
   return 0;
 }
 void
-noit_stats_set_metric(stats_t *newstate, const char *name, metric_type_t type,
+noit_stats_set_metric(noit_check_t *check,
+                      stats_t *newstate, const char *name, metric_type_t type,
                       const void *value) {
   metric_t *m = calloc(1, sizeof(*m));
   if(noit_stats_populate_metric(m, name, type, value)) {
     free_metric(m);
     return;
   }
+  check_stats_set_metric_hook_invoke(check, newstate, m);
   __stats_add_metric(newstate, m);
 }
 void
-noit_stats_set_metric_coerce(stats_t *stat, const char *name, metric_type_t t,
+noit_stats_set_metric_coerce(noit_check_t *check,
+                             stats_t *stat, const char *name, metric_type_t t,
                              const char *v) {
   char *endptr;
   if(v == NULL) {
    bogus:
-    noit_stats_set_metric(stat, name, t, NULL);
+    noit_stats_set_metric(check, stat, name, t, NULL);
     return;
   }
   switch(t) {
     case METRIC_STRING:
-      noit_stats_set_metric(stat, name, t, v);
+      noit_stats_set_metric(check, stat, name, t, v);
       break;
     case METRIC_INT32:
     {
       int32_t val;
       val = strtol(v, &endptr, 10);
       if(endptr == v) goto bogus;
-      noit_stats_set_metric(stat, name, t, &val);
+      noit_stats_set_metric(check, stat, name, t, &val);
       break;
     }
     case METRIC_UINT32:
@@ -1234,7 +1288,7 @@ noit_stats_set_metric_coerce(stats_t *stat, const char *name, metric_type_t t,
       u_int32_t val;
       val = strtoul(v, &endptr, 10);
       if(endptr == v) goto bogus;
-      noit_stats_set_metric(stat, name, t, &val);
+      noit_stats_set_metric(check, stat, name, t, &val);
       break;
     }
     case METRIC_INT64:
@@ -1242,7 +1296,7 @@ noit_stats_set_metric_coerce(stats_t *stat, const char *name, metric_type_t t,
       int64_t val;
       val = strtoll(v, &endptr, 10);
       if(endptr == v) goto bogus;
-      noit_stats_set_metric(stat, name, t, &val);
+      noit_stats_set_metric(check, stat, name, t, &val);
       break;
     }
     case METRIC_UINT64:
@@ -1250,7 +1304,7 @@ noit_stats_set_metric_coerce(stats_t *stat, const char *name, metric_type_t t,
       u_int64_t val;
       val = strtoull(v, &endptr, 10);
       if(endptr == v) goto bogus;
-      noit_stats_set_metric(stat, name, t, &val);
+      noit_stats_set_metric(check, stat, name, t, &val);
       break;
     }
     case METRIC_DOUBLE:
@@ -1258,11 +1312,11 @@ noit_stats_set_metric_coerce(stats_t *stat, const char *name, metric_type_t t,
       double val;
       val = strtod(v, &endptr);
       if(endptr == v) goto bogus;
-      noit_stats_set_metric(stat, name, t, &val);
+      noit_stats_set_metric(check, stat, name, t, &val);
       break;
     }
     case METRIC_GUESS:
-      noit_stats_set_metric(stat, name, t, v);
+      noit_stats_set_metric(check, stat, name, t, v);
       break;
   }
 }
@@ -1282,15 +1336,14 @@ noit_stats_log_immediate_metric(noit_check_t *check,
 }
 
 void
-noit_check_passive_set_stats(struct _noit_module *module, 
-                             noit_check_t *check, stats_t *newstate) {
+noit_check_passive_set_stats(noit_check_t *check, stats_t *newstate) {
   noit_skiplist_node *next;
   noit_check_t n;
 
   uuid_copy(n.checkid, check->checkid);
   n.period = 0;
 
-  noit_check_set_stats(module,check,newstate);
+  noit_check_set_stats(check,newstate);
   noit_skiplist_find_neighbors(&watchlist, &n, NULL, NULL, &next);
   while(next && next->data) {
     stats_t backup;
@@ -1300,10 +1353,13 @@ noit_check_passive_set_stats(struct _noit_module *module,
     /* Swap the real check's stats into place */
     memcpy(&backup, &wcheck->stats.current, sizeof(stats_t));
     memcpy(&wcheck->stats.current, newstate, sizeof(stats_t));
-    /* Write out our status */
-    noit_check_log_status(wcheck);
-    /* Write out all metrics */
-    noit_check_log_metrics(wcheck);
+
+    if(check_passive_log_stats_hook_invoke(check) == NOIT_HOOK_CONTINUE) {
+      /* Write out our status */
+      noit_check_log_status(wcheck);
+      /* Write out all metrics */
+      noit_check_log_metrics(wcheck);
+    }
     /* Swap them back out */
     memcpy(&wcheck->stats.current, &backup, sizeof(stats_t));
 
@@ -1311,8 +1367,7 @@ noit_check_passive_set_stats(struct _noit_module *module,
   }
 }
 void
-noit_check_set_stats(struct _noit_module *module,
-                     noit_check_t *check, stats_t *newstate) {
+noit_check_set_stats(noit_check_t *check, stats_t *newstate) {
   int report_change = 0;
   char *cp;
   dep_list_t *dep;
@@ -1355,8 +1410,10 @@ noit_check_set_stats(struct _noit_module *module,
                       check->stats.current.status);
   }
 
-  /* Write out the bundled information */
-  noit_check_log_bundle(check);
+  if(check_log_stats_hook_invoke(check) == NOIT_HOOK_CONTINUE) {
+    /* Write out the bundled information */
+    noit_check_log_bundle(check);
+  }
   /* count the check as complete */
   check_completion_count++;
 
@@ -1518,6 +1575,9 @@ register_console_check_commands() {
   assert(showcmd && showcmd->dstate);
 
   noit_console_state_add_cmd(showcmd->dstate,
+    NCSCMD("timing_slots", noit_console_show_timing_slots, NULL, NULL, NULL));
+
+  noit_console_state_add_cmd(showcmd->dstate,
     NCSCMD("checks", noit_console_show_checks, NULL, NULL, NULL));
 
   noit_console_state_add_cmd(showcmd->dstate,
@@ -1533,6 +1593,7 @@ noit_check_register_module(const char *name) {
   noitL(noit_debug, "Registered module %s as %d\n", name, i);
   i = reg_module_id++;
   reg_module_names[i] = strdup(name);
+  noit_conf_set_namespace(reg_module_names[i]);
   return i;
 }
 int

@@ -124,6 +124,19 @@ noit_xml_userdata_free(noit_xml_userdata_t *n) {
   if(n->path) free(n->path);
 }
 
+void
+noit_conf_set_namespace(const char *ns) {
+  xmlNsPtr nsptr;
+  xmlNodePtr root;
+  root = xmlDocGetRootElement(master_config);
+  nsptr = xmlSearchNs(master_config, root, (xmlChar *)ns);
+  if(!nsptr) {
+    char url[128];
+    snprintf(url, sizeof(url), "noit://module/%s", ns);
+    nsptr = xmlNewNs(root, (xmlChar *)url, (xmlChar *)ns);
+  }
+}
+
 static int
 noit_conf_watch_config_and_journal(eventer_t e, int mask, void *closure,
                                    struct timeval *now) {
@@ -799,16 +812,26 @@ void noit_conf_get_elements_into_hash(noit_conf_section_t section,
     char *value;
     node = xmlXPathNodeSetItem(pobj->nodesetval, i);
     if(namespace && node->ns && !strcmp((char *)node->ns->prefix, namespace)) {
+      const xmlChar *name = node->name;
+      if(!strcmp((char *)name, "value")) {
+        name = xmlGetProp(node, (xmlChar *)"name");
+        if(!name) name = node->name;
+      }
       value = (char *)xmlXPathCastNodeToString(node);
       noit_hash_replace(table,
-                        strdup((char *)node->name), strlen((char *)node->name),
+                        strdup((char *)name), strlen((char *)name),
                         strdup(value), free, free);
       xmlFree(value);
     }
     else if(!namespace && !node->ns) {
+      const xmlChar *name = node->name;
+      if(!strcmp((char *)name, "value")) {
+        name = xmlGetProp(node, (xmlChar *)"name");
+        if(!name) name = node->name;
+      }
       value = (char *)xmlXPathCastNodeToString(node);
       noit_hash_replace(table,
-                        strdup((char *)node->name), strlen((char *)node->name),
+                        strdup((char *)name), strlen((char *)name),
                         strdup(value), free, free);
       xmlFree(value);
     }

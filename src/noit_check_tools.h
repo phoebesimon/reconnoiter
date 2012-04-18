@@ -60,10 +60,20 @@ API_EXPORT(void)
   noit_check_run_full_asynch(noit_check_t *check, eventer_func_t callback);
 
 API_EXPORT(int)
-  noit_check_stats_from_json_str(stats_t *s, const char *json_str, int len);
+  noit_check_stats_from_json_str(noit_check_t *check, stats_t *s,
+                                 const char *json_str, int len);
 
 /*#* DOCBOOK
  * <section><title>Check Hooks</title>
+ *   <section><title>check_stats_set_metric</title>
+ *   <programlisting>
+ *     noit_hook_return_t (*f)(void *closure, noit_check_t *check, metric_t *m);
+ *   </programlisting>
+ *   <para>the check_stats_set_metric hook is invoked each time a check is
+ *   run and an individual metric is identified and inserted into
+ *   the running status.
+ *   </para>
+ *   </section>
  *   <section><title>check_preflight</title>
  *   <programlisting>
  *     noit_hook_return_t (*f)(void *closure, noit_module_t *self,
@@ -94,6 +104,22 @@ API_EXPORT(int)
  *   <para>Returning NOIT_HOOK_CONTINUE and NOIT_HOOK_DONE have the same
  *   effect for this instrumentation point.</para>
  *   </section>
+ *   <section><title>check_log_stats</title>
+ *   <programlisting>
+ *     noit_hook_return_t (*f)(void *closure, noit_check_t *check);
+ *   </programlisting>
+ *   <para>The check_log_stats is called when a check logs a metrics
+ *   bundle.</para>
+ *   <para>If NOIT_HOOK_DONE is returned, normal logging is averted.</para>
+ *   </section>
+ *   <section><title>check_passive_log_stats</title>
+ *   <programlisting>
+ *     noit_hook_return_t (*f)(void *closure, noit_check_t *check);
+ *   </programlisting>
+ *   <para>The check_passive_log_stats is called when a check logs a
+ *   metric immediately.</para>
+ *   <para>If NOIT_HOOK_DONE is returned, normal logging is averted.</para>
+ *   </section>
  * </section>
  */
 NOIT_HOOK_PROTO(check_preflight,
@@ -104,6 +130,13 @@ NOIT_HOOK_PROTO(check_postflight,
                 (noit_module_t *self, noit_check_t *check, noit_check_t *cause),
                 void *, closure,
                 (void *closure, noit_module_t *self, noit_check_t *check, noit_check_t *cause))
+
+#define BAIL_ON_RUNNING_CHECK(check) do { \
+  if(check->flags & NP_RUNNING) { \
+    noitL(noit_error, "Check %s is still running!\n", check->name); \
+    return -1; \
+  } \
+} while(0)
 
 #define INITIATE_CHECK(func, self, check, cause) do { \
   if(once) { \

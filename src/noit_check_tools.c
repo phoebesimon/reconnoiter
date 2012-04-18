@@ -50,7 +50,6 @@ NOIT_HOOK_IMPL(check_postflight,
   (void *closure, noit_module_t *self, noit_check_t *check, noit_check_t *cause),
   (closure,self,check,cause))
 
-
 typedef struct {
   noit_module_t *self;
   noit_check_t *check;
@@ -62,10 +61,11 @@ static int
 noit_check_recur_handler(eventer_t e, int mask, void *closure,
                               struct timeval *now) {
   recur_closure_t *rcl = closure;
+  int ms;
   rcl->check->fire_event = NULL; /* This is us, we get free post-return */
   noit_check_resolve(rcl->check);
-  noit_check_schedule_next(rcl->self, &e->whence, rcl->check, now,
-                           rcl->dispatch, NULL);
+  ms = noit_check_schedule_next(rcl->self, NULL, rcl->check, now,
+                                rcl->dispatch, NULL);
   if(NOIT_CHECK_RESOLVED(rcl->check)) {
     if(NOIT_HOOK_CONTINUE ==
        check_preflight_hook_invoke(rcl->self, rcl->check, rcl->cause)) {
@@ -75,6 +75,9 @@ noit_check_recur_handler(eventer_t e, int mask, void *closure,
         NOIT_CHECK_DISPATCH(id, rcl->check->module, rcl->check->name,
                             rcl->check->target);
       }
+      if(ms < rcl->check->timeout && !(rcl->check->flags & NP_TRANSIENT))
+        noitL(noit_error, "%s might not finish in %dms (timeout %dms)\n",
+              rcl->check->name, ms, rcl->check->timeout);
       rcl->dispatch(rcl->self, rcl->check, rcl->cause);
     }
     check_postflight_hook_invoke(rcl->self, rcl->check, rcl->cause);
@@ -92,14 +95,24 @@ noit_check_schedule_next(noit_module_t *self,
                          struct timeval *now, dispatch_func_t dispatch,
                          noit_check_t *cause) {
   eventer_t newe;
-  struct timeval period, earliest;
+  struct timeval period, earliest, diff;
+  u_int64_t diffms, periodms, offsetms;
   recur_closure_t *rcl;
+  int initial = last_check ? 1 : 0;
 
   assert(cause == NULL);
   assert(check->fire_event == NULL);
   if(check->period == 0) return 0;
+
+  /* if last_check is not passed, we use the initial_schedule_time
+   * otherwise, we set the initial_schedule_time
+   */
+  if(!last_check) last_check = &check->initial_schedule_time;
+  else memcpy(&check->initial_schedule_time, last_check, sizeof(*last_check));
+
   if(NOIT_CHECK_DISABLED(check) || NOIT_CHECK_KILLED(check)) {
     if(!(check->flags & NP_TRANSIENT)) check_slots_dec_tv(last_check);
+    memset(&check->initial_schedule_time, 0, sizeof(struct timeval));
     return 0;
   }
 
@@ -113,9 +126,11 @@ noit_check_schedule_next(noit_module_t *self,
 
   /* If the check is unconfigured and needs resolving, we'll set the
    * period down a bit lower so we can pick up the resolution quickly.
+   * The one exception is if this is the initial run.
    */
-  if(!NOIT_CHECK_RESOLVED(check) && NOIT_CHECK_SHOULD_RESOLVE(check) &&
-      check->period > 1000) {
+  if(!initial &&
+     !NOIT_CHECK_RESOLVED(check) && NOIT_CHECK_SHOULD_RESOLVE(check) &&
+     check->period > 1000) {
     period.tv_sec = 1;
     period.tv_usec = 0;
   }
@@ -123,12 +138,24 @@ noit_check_schedule_next(noit_module_t *self,
     period.tv_sec = check->period / 1000;
     period.tv_usec = (check->period % 1000) * 1000;
   }
+  periodms = period.tv_sec * 1000 + period.tv_usec / 1000;
 
   newe = eventer_alloc();
+  sub_timeval(earliest, *last_check, &diff);
+  /* calculat the differnet between the initial schedule time and "now" */
+  diffms = diff.tv_sec * 1000 + diff.tv_usec / 1000;
+  /* determine the offset from initial schedule time that would place
+   * us at the next period-aligned point past "now" */
+  offsetms = ((diffms / periodms) + 1) * periodms;
+  diff.tv_sec = offsetms / 1000;
+  diff.tv_usec = (offsetms % 1000) * 1000;
+ 
   memcpy(&newe->whence, last_check, sizeof(*last_check));
-  add_timeval(newe->whence, period, &newe->whence);
-  if(compare_timeval(newe->whence, earliest) < 0)
-    memcpy(&newe->whence, &earliest, sizeof(earliest));
+  add_timeval(newe->whence, diff, &newe->whence);
+
+  sub_timeval(newe->whence, earliest, &diff);
+  diffms = (int)diff.tv_sec * 1000 + (int)diff.tv_usec / 1000;
+  assert(compare_timeval(newe->whence, earliest) > 0);
   newe->mask = EVENTER_TIMER;
   newe->callback = noit_check_recur_handler;
   rcl = calloc(1, sizeof(*rcl));
@@ -140,7 +167,7 @@ noit_check_schedule_next(noit_module_t *self,
 
   eventer_add(newe);
   check->fire_event = newe;
-  return 0;
+  return diffms;
 }
 
 void
@@ -173,7 +200,8 @@ noit_check_tools_init() {
 }
 
 static int
-populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
+populate_stats_from_resmon_formatted_json(noit_check_t *check,
+                                          stats_t *s, struct json_object *o,
                                           const char *prefix) {
   int count = 0;
   char keybuff[256];
@@ -183,7 +211,7 @@ populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
 } while(0)
   if(o == NULL) {
     if(prefix) {
-      noit_stats_set_metric(s, prefix, METRIC_STRING, NULL);
+      noit_stats_set_metric(check, s, prefix, METRIC_STRING, NULL);
       count++;
     }
     return count;
@@ -196,7 +224,7 @@ populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
       for(i=0;i<alen;i++) {
         struct json_object *item = json_object_array_get_idx(o, i);
         MKKEY("%d", i);
-        count += populate_stats_from_resmon_formatted_json(s, item, keybuff);
+        count += populate_stats_from_resmon_formatted_json(check, s, item, keybuff);
       }
     }
     break;
@@ -212,7 +240,7 @@ populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
         else {
           struct json_object *item = (struct json_object *)el->v;
           MKKEY("%s", (const char *)el->k);
-          count += populate_stats_from_resmon_formatted_json(s, item, keybuff);
+          count += populate_stats_from_resmon_formatted_json(check, s, item, keybuff);
         }
       }
       if(prefix && has_type && has_value &&
@@ -227,7 +255,7 @@ populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
           case METRIC_UINT64:
           case METRIC_DOUBLE:
           case METRIC_STRING:
-            noit_stats_set_metric_coerce(s, prefix,
+            noit_stats_set_metric_coerce(check, s, prefix,
                                          (metric_type_t)*type_str, value_str);
             count++;
           default:
@@ -240,7 +268,7 @@ populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
     /* directs */
     case json_type_string:
       if(prefix) {
-        noit_stats_set_metric(s, prefix, METRIC_GUESS,
+        noit_stats_set_metric(check, s, prefix, METRIC_GUESS,
                               (char *)json_object_get_string(o));
         count++;
       }
@@ -248,20 +276,20 @@ populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
     case json_type_boolean:
       if(prefix) {
         int val = json_object_get_boolean(o) ? 1 : 0;
-        noit_stats_set_metric(s, prefix, METRIC_INT32, &val);
+        noit_stats_set_metric(check, s, prefix, METRIC_INT32, &val);
         count++;
       }
       break;
     case json_type_null:
       if(prefix) {
-        noit_stats_set_metric(s, prefix, METRIC_STRING, NULL);
+        noit_stats_set_metric(check, s, prefix, METRIC_STRING, NULL);
         count++;
       }
       break;
     case json_type_double:
       if(prefix) {
         double val = json_object_get_double(o);
-        noit_stats_set_metric(s, prefix, METRIC_DOUBLE, &val);
+        noit_stats_set_metric(check, s, prefix, METRIC_DOUBLE, &val);
         count++;
       }
       break;
@@ -272,17 +300,17 @@ populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
         switch(json_object_get_int_overflow(o)) {
           case json_overflow_int:
             i64 = json_object_get_int(o);
-            noit_stats_set_metric(s, prefix, METRIC_INT64, &i64);
+            noit_stats_set_metric(check, s, prefix, METRIC_INT64, &i64);
             count++;
             break;
           case json_overflow_int64:
             i64 = json_object_get_int64(o);
-            noit_stats_set_metric(s, prefix, METRIC_INT64, &i64);
+            noit_stats_set_metric(check, s, prefix, METRIC_INT64, &i64);
             count++;
             break;
           case json_overflow_uint64:
             u64 = json_object_get_uint64(o);
-            noit_stats_set_metric(s, prefix, METRIC_UINT64, &u64);
+            noit_stats_set_metric(check, s, prefix, METRIC_UINT64, &u64);
             count++;
             break;
         }
@@ -291,13 +319,14 @@ populate_stats_from_resmon_formatted_json(stats_t *s, struct json_object *o,
   return count;
 }
 int
-noit_check_stats_from_json_str(stats_t *s, const char *json_str, int len) {
+noit_check_stats_from_json_str(noit_check_t *check, stats_t *s,
+                               const char *json_str, int len) {
   int rv = -1;
   struct json_tokener *tok = NULL;
   struct json_object *root = NULL;
   tok = json_tokener_new();
   root = json_tokener_parse_ex(tok, json_str, len);
-  if(root) rv = populate_stats_from_resmon_formatted_json(s, root, NULL);
+  if(root) rv = populate_stats_from_resmon_formatted_json(check, s, root, NULL);
   if(tok) json_tokener_free(tok);
   if(root) json_object_put(root);
   return rv;

@@ -28,7 +28,7 @@ public class RabbitBroker implements IMQBroker  {
   private int cidx;
   private Connection conn;
   private Channel channel;
-  private boolean noAck = false;
+  private boolean noAck = true;
   private String userName;
   private String password;
   private String virtualHost;
@@ -146,9 +146,10 @@ public class RabbitBroker implements IMQBroker  {
 
     returnedQueueName = channel.queueDeclare(queueName, durableQueue,
                                              exclusiveQueue, autoDelete, null).getQueue();
-    channel.queueBind(returnedQueueName, exchangeName, routingKey);
-    if(!routingKey.equals(""))
-      channel.queueBind(returnedQueueName, exchangeName, "");
+    for (String rk : routingKey.split(",")) {
+        if ( rk.equalsIgnoreCase("null") ) rk = "";
+        channel.queueBind(returnedQueueName, exchangeName, rk);
+    }
   }
   public Channel getChannel() { return channel; }
   
@@ -173,7 +174,8 @@ public class RabbitBroker implements IMQBroker  {
         // TODO Auto-generated catch block
         e.printStackTrace();
       }
-      channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+      if(!noAck)
+        channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
     }
   }
 
