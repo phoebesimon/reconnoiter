@@ -117,9 +117,9 @@ noit_console_mkcheck_xpath(char *xpath, int len,
 static void
 nc_attr_show(noit_console_closure_t ncct, const char *name, xmlNodePtr cnode,
              xmlNodePtr anode, const char *value) {
-  const char *cpath, *apath;
-  cpath = cnode ? (char *)xmlGetNodePath(cnode) : "";
-  apath = anode ? (char *)xmlGetNodePath(anode) : "";
+  char *cpath, *apath;
+  cpath = cnode ? (char *)xmlGetNodePath(cnode) : strdup("");
+  apath = anode ? (char *)xmlGetNodePath(anode) : strdup("");
   nc_printf(ncct, " %s: %s", name, value ? value : "[undef]");
   if(value && cpath && apath) {
     int clen = strlen(cpath);
@@ -133,6 +133,8 @@ nc_attr_show(noit_console_closure_t ncct, const char *name, xmlNodePtr cnode,
     }
   }
   nc_write(ncct, "\n", 1);
+  if(cpath) free(cpath);
+  if(apath) free(apath);
 }
 static void 
 refresh_subchecks(noit_console_closure_t ncct,
@@ -446,6 +448,7 @@ noit_console_show_check(noit_console_closure_t ncct,
       continue;
     }
     nc_printf(ncct, "==== %s ====\n", uuid_conf);
+    free(uuid_conf);
 
 #define MYATTR(a,n,b) _noit_conf_get_string(node, &(n), "@" #a, &(b))
 #define INHERIT(a,n,b) \
@@ -455,6 +458,7 @@ noit_console_show_check(noit_console_closure_t ncct,
   value = NULL; \
   INHERIT(a, anode, value); \
   nc_attr_show(ncct, #a, node, anode, value); \
+  if(value != NULL) free(value); \
 } while(0)
 
     if(!INHERIT(module, mnode, module)) module = NULL;
@@ -463,6 +467,7 @@ noit_console_show_check(noit_console_closure_t ncct,
     else
       nc_printf(ncct, " name: %s [from module]\n", module ? module : "[undef]");
     nc_attr_show(ncct, "module", node, mnode, module);
+    if(module) free(module);
     SHOW_ATTR(target);
     SHOW_ATTR(resolve_rtype);
     SHOW_ATTR(period);
@@ -492,6 +497,17 @@ noit_console_show_check(noit_console_closure_t ncct,
       if(NOIT_CHECK_DISABLED(check)) nc_printf(ncct, "%sdisabled", idx++?",":"");
       if(!idx) nc_printf(ncct, "idle");
       nc_write(ncct, "\n", 1);
+      if (check->fire_event != NULL) {
+        struct timeval now, diff;
+        gettimeofday(&now, NULL);
+        sub_timeval(check->fire_event->whence, now, &diff);
+        nc_printf(ncct, " next run: %0.3f seconds\n",
+                diff.tv_sec + (diff.tv_usec / 1000000.0));
+      }
+      else {
+        nc_printf(ncct, " next run: unscheduled\n");
+      }
+
       if(check->stats.current.whence.tv_sec == 0) {
         nc_printf(ncct, " last run: never\n");
       }

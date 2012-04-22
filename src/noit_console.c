@@ -169,6 +169,7 @@ nc_vprintf(noit_console_closure_t ncct, const char *fmt, va_list arg) {
 }
 int
 nc_write(noit_console_closure_t ncct, const void *buf, int len) {
+  if(len == 0) return 0;
   if(!ncct->outbuf_allocd) {
     ncct->outbuf = malloc(len);
     if(!ncct->outbuf) return 0;
@@ -196,10 +197,16 @@ noit_console_userdata_free(void *data) {
   }
 }
 void
-noit_console_closure_free(noit_console_closure_t ncct) {
+noit_console_closure_free(void *vncct) {
+  noit_console_closure_t ncct = (noit_console_closure_t) vncct;
   noit_log_stream_t lf;
+  noitL(noit_debug, "ncct free(%p)\n", (void *)ncct);
   if(ncct->el) el_end(ncct->el);
-  if(ncct->hist) history_end(ncct->hist);
+  if(ncct->hist) {
+    history_end(ncct->hist);
+    noitL(noit_debug, "ncct free->hist(%p)\n", (void *)ncct->hist);
+    free(ncct->hist);
+  }
   if(ncct->pty_master >= 0) close(ncct->pty_master);
   if(ncct->pty_slave >= 0) close(ncct->pty_slave);
   if(ncct->outbuf) free(ncct->outbuf);
@@ -209,6 +216,7 @@ noit_console_closure_free(noit_console_closure_t ncct) {
     noit_console_state_stack_t *tmp;
     tmp = ncct->state_stack;
     ncct->state_stack = tmp->last;
+    if(tmp->name) free(tmp->name);
     free(tmp);
   }
   lf = noit_log_stream_find(ncct->feed_path);
@@ -298,6 +306,7 @@ noit_console_dispatch(eventer_t e, const char *buffer,
   if(i>cnt) nc_printf(ncct, "Command length too long.\n");
   else if(i<0) nc_printf(ncct, "Error at offset: %d\n", 0-i);
   else noit_console_state_do(ncct, cnt, cmds);
+  while(cnt>0) free(cmds[--cnt]);
 }
 
 void
@@ -355,7 +364,6 @@ socket_error:
 
     /* This removes the log feed which is important to do before calling close */
     eventer_remove_fd(e->fd);
-    if(ncct) noit_console_closure_free(ncct);
     if(ac) acceptor_closure_free(ac);
     e->opset->close(e->fd, &newmask, e);
     return 0;
@@ -363,6 +371,8 @@ socket_error:
 
   if(!ac->service_ctx) {
     ncct = ac->service_ctx = noit_console_closure_alloc();
+    noitL(noit_debug, "ncct alloc() -> %p\n", (void *)ncct);
+    ac->service_ctx_free = noit_console_closure_free;
   }
   if(!ncct->initialized) {
     ncct->e = e;
@@ -445,7 +455,6 @@ socket_error:
     len = e->opset->read(e->fd, sbuf, sizeof(sbuf)-1, &newmask, e);
     if(len == 0 || (len < 0 && errno != EAGAIN)) {
       eventer_remove_fd(e->fd);
-      if(ncct) noit_console_closure_free(ncct);
       if(ac) acceptor_closure_free(ac);
       e->opset->close(e->fd, &newmask, e);
       return 0;
