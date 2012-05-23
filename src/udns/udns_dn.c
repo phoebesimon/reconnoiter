@@ -26,8 +26,11 @@
 
 unsigned dns_dnlen(dnscc_t *dn) {
   register dnscc_t *d = dn;
-  while(*d)
+  unsigned l = 0;
+  while(*d && l < DNS_MAXDN) {
+    l += 1 + *d;
     d += 1 + *d;
+  }
   return (unsigned)(d - dn) + 1;
 }
 
