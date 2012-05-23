@@ -138,6 +138,8 @@ dns_ptodn(const char *name, unsigned namelen,
   if ((c = dp - llab) > DNS_MAXLABEL)
     return -1;				/* label too long */
   if ((llab[-1] = (dnsc_t)c) != 0) {
+    if (dp >= de)
+      return -1;
     *dp++ = 0;
     if (isabs)
       *isabs = 0;
