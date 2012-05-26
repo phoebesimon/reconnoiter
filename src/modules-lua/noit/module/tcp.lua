@@ -196,7 +196,7 @@ function initiate(module, check)
 
     local bannerre = noit.pcre(check.config.banner_match)
     if bannerre ~= nil then
-      local rv, m, m1 = bannerre(str)
+      local rv, m, m1 = bannerre(str, { limit = pcre_match_limit })
       if rv then
         m = m1 or m or str
         if string.len(m) > max_len then
@@ -227,7 +227,7 @@ function initiate(module, check)
     elapsed(check, "tt_body", starttime, bodybytetime)
 
     local bodyre = noit.pcre(check.config.body_match)
-    local rv, m, m1 = bodyre(str or '')
+    local rv, m, m1 = bodyre(str or '', { limit = pcre_match_limit })
     if rv then
       m = m1 or m or str
       if string.len(m) > max_len then
