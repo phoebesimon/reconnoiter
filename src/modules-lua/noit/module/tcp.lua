@@ -196,7 +196,7 @@ function initiate(module, check)
 
     local bannerre = noit.pcre(check.config.banner_match)
     if bannerre ~= nil then
-      local rv, m, m1 = bannerre(str)
+      local rv, m, m1 = bannerre(str, { limit = pcre_match_limit })
       if rv then
         m = m1 or m or str
         if string.len(m) > max_len then
@@ -226,28 +226,20 @@ function initiate(module, check)
     local bodybytetime = noit.timeval.now()
     elapsed(check, "tt_body", starttime, bodybytetime)
 
-    local exre = noit.pcre(check.config.body_match)
-    local rv = true
-    local found = false
-    local m = nil
-    while rv and m ~= '' do
-      rv, m, key, value = exre(str or '', { limit = pcre_match_limit })
-      if rv then
-        found = true
-        if key ~= nil then
-          check.metric(key, value)
-        end
+    local bodyre = noit.pcre(check.config.body_match)
+    local rv, m, m1 = bodyre(str or '', { limit = pcre_match_limit })
+    if rv then
+      m = m1 or m or str
+      if string.len(m) > max_len then
+        m = string.sub(m,1,max_len)
       end
-    end
-
-    if found then
       status = status .. ',body_match=matched'
+      check.metric_string('body_match', m)
     else
-      good = false
       status = status .. ',body_match=failed'
+      check.metric_string('body_match', nil)
+      good = false
     end
-
-    check.metric_string('body',str)
   end
 
   -- turnaround time
