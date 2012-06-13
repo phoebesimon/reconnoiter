@@ -99,7 +99,7 @@ static dns_ctx_handle_t *dns_ctx_alloc(const char *ns, int port) {
   if (ns != NULL) {
     int len = snprintf(NULL, 0, "%s:%d", ns, port); 
     hk = (char *)malloc(len);
-    sprintf(hk, "%s-%d", ns, port);
+    sprintf(hk, "%s:%d", ns, port);
   }
   if(ns &&
      noit_hash_retrieve(&dns_ctx_store, hk, strlen(hk), &vh)) {
