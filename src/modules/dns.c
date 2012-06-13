@@ -97,7 +97,8 @@ static dns_ctx_handle_t *dns_ctx_alloc(const char *ns, int port) {
   */
   char *hk = NULL;
   if (ns != NULL) {
-    hk = (char *)malloc(strlen(ns) + 6);
+    int len = snprintf(NULL, 0, "%s-%d", ns, port); 
+    hk = (char *)malloc(len);
     sprintf(hk, "%s-%d", ns, port);
   }
   if(ns &&
