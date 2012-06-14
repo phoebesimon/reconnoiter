@@ -61,8 +61,9 @@ static noit_hash_table dns_ctypes = NOIT_HASH_EMPTY;
 static noit_hash_table dns_ctx_store = NOIT_HASH_EMPTY;
 static pthread_mutex_t dns_ctx_store_lock;
 typedef struct dns_ctx_handle {
-  char *ns;
-  struct dns_ctx *ctx;
+  char *ns; /* name server */
+  char *hkey; /* hash key - ns plus the port number */
+  struct dns_ctx *ctx;  
   noit_atomic32_t refcnt;
   eventer_t e; /* evetner handling UDP traffic */
   eventer_t timeout; /* the timeout managed by libudns */
@@ -77,6 +78,7 @@ static void dns_ctx_handle_free(void *vh) {
   dns_ctx_handle_t *h = vh;
   assert(h->timeout == NULL);
   free(h->ns);
+  free(h->hkey);
   dns_close(h->ctx);
   dns_free(h->ctx);
 }
@@ -90,10 +92,20 @@ static dns_ctx_handle_t *dns_ctx_alloc(const char *ns, int port) {
     noit_atomic_inc32(&h->refcnt);
     goto bail;
   }
+  /* Fix details: if you have two DNS checks running on the same server but different ports,
+     one of the two checks will hit the wrong port.
+  */
+  char *hk = NULL;
+  if (ns != NULL) {
+    int len = snprintf(NULL, 0, "%s:%d", ns, port); 
+    hk = (char *)malloc(len);
+    sprintf(hk, "%s:%d", ns, port);
+  }
   if(ns &&
-     noit_hash_retrieve(&dns_ctx_store, ns, strlen(ns), &vh)) {
+     noit_hash_retrieve(&dns_ctx_store, hk, strlen(hk), &vh)) {
     h = (dns_ctx_handle_t *)vh;
     noit_atomic_inc32(&h->refcnt);
+    free(hk);
   }
   else {
     int failed = 0;
@@ -113,9 +125,11 @@ static dns_ctx_handle_t *dns_ctx_alloc(const char *ns, int port) {
       noitL(nlerr, "dns_open failed\n");
       free(h->ns);
       free(h);
+      free(hk);
       h = NULL;
       goto bail;
     }
+    h->hkey = hk;
     dns_set_tmcbck(h->ctx, eventer_dns_utm_fn, h);
     h->e = eventer_alloc();
     h->e->mask = EVENTER_READ | EVENTER_EXCEPTION;
@@ -127,7 +141,7 @@ static dns_ctx_handle_t *dns_ctx_alloc(const char *ns, int port) {
     if(!ns)
       default_ctx_handle = h;
     else
-      noit_hash_store(&dns_ctx_store, h->ns, strlen(h->ns), h);
+      noit_hash_store(&dns_ctx_store, h->hkey, strlen(h->hkey), h);
   }
  bail:
   pthread_mutex_unlock(&dns_ctx_store_lock);
@@ -142,7 +156,7 @@ static void dns_ctx_release(dns_ctx_handle_t *h) {
   pthread_mutex_lock(&dns_ctx_store_lock);
   if(noit_atomic_dec32(&h->refcnt) == 0) {
     /* I was the last one */
-    assert(noit_hash_delete(&dns_ctx_store, h->ns, strlen(h->ns),
+    assert(noit_hash_delete(&dns_ctx_store, h->hkey, strlen(h->hkey),
                             NULL, dns_ctx_handle_free));
   }
   pthread_mutex_unlock(&dns_ctx_store_lock);
