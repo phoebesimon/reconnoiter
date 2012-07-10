@@ -362,7 +362,7 @@ noit_validate_check_rest_post(xmlDocPtr doc, xmlNodePtr *a, xmlNodePtr *c,
           tmp = xmlNodeGetContent(an);
           pint = noit_conf_string_to_int((char *)tmp);
           xmlFree(tmp);
-          if(pint < 0 || pint > 300000) {
+          if(pint < 0 || pint > MAX_CHECK_TIMEOUT) {
             *error = "invalid timeout";
             return 0;
           }
